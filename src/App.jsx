@@ -376,7 +376,6 @@ export default function App() {
   useEffect(() => { saveLS("ward_orders", orders); }, [orders]);
   useEffect(() => { saveLS("ward_patCats", patCats); }, [patCats]);
   useEffect(() => { saveLS("ward_rLabs", rLabs); }, [rLabs]);
-  useEffect(() => { saveLS("ward_taskDB", taskDB); }, [taskDB]);
   const today = tdL();
 
   const addOrUpdatePat = p => {
@@ -433,6 +432,7 @@ export default function App() {
     return {am, pm, vitals: vt, karte: kt};
   };
   const [taskDB, setTaskDB] = useState(() => loadLS("ward_taskDB", (() => { const db = {}; db[today] = mkEmptyDay(iPats, today); return db; })()));
+  useEffect(() => { saveLS("ward_taskDB", taskDB); }, [taskDB]);
   const ensureDay = dateStr => {
     setTaskDB(prev => {
       if (prev[dateStr]) return prev;
