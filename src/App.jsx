@@ -116,7 +116,7 @@ const CARE_LEVELS = ["なし","要支援1","要支援2","要介護1","要介護2
 const FAMILY_OPTS = ["配偶者","子供","独居","施設入所","キーパーソン遠方"];
 
 // Modals
-function PatientModal({onSave, onClose, edit, doctors, usedColors}) {
+function PatientModal({onSave, onDelete, onClose, edit, doctors, usedColors}) {
   const autoColor = () => { const used = usedColors||[]; return COLORS.find(c => !used.includes(c)) || COLORS[0]; };
   // Convert M/D string to YYYY-MM-DD for date input
   const toDateVal = s => { const d = pMD(s); if (!d) return ""; const m = String(d.getMonth()+1).padStart(2,"0"), dd = String(d.getDate()).padStart(2,"0"); return `2026-${m}-${dd}`; };
@@ -225,12 +225,20 @@ function PatientModal({onSave, onClose, edit, doctors, usedColors}) {
             </div>
           )}
         </div>
-        <div style={{padding:"14px 20px",borderTop:"1px solid #E2E8F0",display:"flex",gap:8,flexShrink:0}}>
-          <button onClick={onClose} style={{flex:1,border:"1px solid #E2E8F0",background:"white",borderRadius:10,padding:"10px",fontSize:13,cursor:"pointer",fontWeight:600}}>取消</button>
-          <button onClick={() => { if (!f.name||!f.room) return; onSave({...f,id:edit?.id||"p_"+Date.now(),age:parseInt(f.age)||0,weight:parseFloat(f.weight)||0,cr:parseFloat(f.cr)||0}); onClose(); }}
-            style={{flex:2,border:"none",background:"#3B82F6",color:"white",borderRadius:10,padding:"10px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
-            {edit ? "更新" : "登録"}
-          </button>
+        <div style={{padding:"14px 20px",borderTop:"1px solid #E2E8F0",display:"flex",flexDirection:"column",gap:8,flexShrink:0}}>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={onClose} style={{flex:1,border:"1px solid #E2E8F0",background:"white",borderRadius:10,padding:"10px",fontSize:13,cursor:"pointer",fontWeight:600}}>キャンセル</button>
+            <button onClick={() => { if (!f.name||!f.room) return; onSave({...f,id:edit?.id||"p_"+Date.now(),age:parseInt(f.age)||0,weight:parseFloat(f.weight)||0,cr:parseFloat(f.cr)||0}); onClose(); }}
+              style={{flex:2,border:"none",background:"#3B82F6",color:"white",borderRadius:10,padding:"10px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+              {edit ? "更新" : "登録"}
+            </button>
+          </div>
+          {edit && (
+            <button onClick={() => { if (window.confirm(`「${edit.name}」を削除しますか？`)) { onDelete(edit.id); onClose(); } }}
+              style={{width:"100%",border:"1px solid #FCA5A5",background:"#FFF5F5",color:"#DC2626",borderRadius:10,padding:"10px",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+              この患者を削除
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -418,6 +426,13 @@ export default function App() {
     const fu = window.prompt("外来フォロー予定日（例: 4/15）。なければ空白のままEnter");
     setDischarged(pr => [...pr, {...p, dischargeDate: today, followUp: fu||""}]);
     setPatients(pr => pr.filter(x => x.id !== pid));
+  };
+  const deletePat = pid => {
+    setPatients(pr => pr.filter(x => x.id !== pid));
+    setOrders(pr => { const n = {...pr}; delete n[pid]; return n; });
+    setPatCats(pr => { const n = {...pr}; delete n[pid]; return n; });
+    setRLabs(pr => { const n = {...pr}; delete n[pid]; return n; });
+    setTaskDB(pr => { const n = {}; Object.keys(pr).forEach(d => { const day = {...pr[d]}; delete day[pid]; n[d] = day; }); return n; });
   };
   const extBar = (pid, oid, ds) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => o.id === oid ? {...o, endDate: ds} : o)}));
   const togDot = (pid, oid, ds) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => { if (o.id !== oid) return o; const d = o.dates||[]; return {...o, dates: d.includes(ds) ? d.filter(x => x !== ds) : [...d, ds].sort()}; })}));
@@ -1383,7 +1398,7 @@ export default function App() {
         </>}
       </div>
       {/* Modals */}
-      {patModal !== null && <PatientModal edit={patModal.edit} onSave={addOrUpdatePat} onClose={() => setPatModal(null)} doctors={doctors} usedColors={patients.map(p=>p.color)}/>}
+      {patModal !== null && <PatientModal edit={patModal.edit} onSave={addOrUpdatePat} onDelete={deletePat} onClose={() => setPatModal(null)} doctors={doctors} usedColors={patients.map(p=>p.color)}/>}
       {catModal && <AddCatModal onAdd={c => setPatCats(pr => ({...pr,[catModal]:[...(pr[catModal]||DEFAULT_CATS),c]}))} onClose={() => setCatModal(null)}/>}
     </div>
   );
