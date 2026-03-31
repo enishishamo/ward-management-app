@@ -363,6 +363,7 @@ export default function App() {
   const [rlOpen, setRlOpen] = useState({});
   const isMobile = false;
   const [mobileTab, setMobileTab] = useState("todo");
+  const [panel, setPanel] = useState("both");
   const [filterDoctor, setFilterDoctor] = useState("all");
   const filteredPats = useMemo(() => filterDoctor === "all" ? sortedPats : sortedPats.filter(p => p.doctor === filterDoctor), [sortedPats, filterDoctor]);
   useEffect(() => { saveLS("ward_patients", patients); }, [patients]);
@@ -793,7 +794,16 @@ export default function App() {
             {d === "all" ? "全員" : d+"Dr"}
           </button>
         ))}
-        {discharged.length > 0 && <span style={{fontSize:9,color:"#94A3B8",alignSelf:"center",marginLeft:"auto"}}>退院済:{discharged.length}名</span>}
+        <div style={{display:"flex",gap:4,marginLeft:"auto",flexShrink:0}}>
+          {[["schedule","📋 予定表"],["todo","✅ 今日"],["both","両方"]].map(([v,l]) => (
+            <button key={v} onClick={() => setPanel(v)}
+              style={{border:"none",borderRadius:16,padding:"4px 12px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",
+                background:panel===v?"#1E293B":"#F1F5F9",color:panel===v?"white":"#475569"}}>
+              {l}
+            </button>
+          ))}
+        </div>
+        {discharged.length > 0 && <span style={{fontSize:9,color:"#94A3B8",alignSelf:"center"}}>退院済:{discharged.length}名</span>}
       </div>
 
       {/* Main panels */}
@@ -1097,7 +1107,7 @@ export default function App() {
         {/* ===== DESKTOP LAYOUT ===== */}
         {!isMobile && <>
         {/* LEFT: Schedule */}
-        <div style={{flex:1,display:"flex",flexDirection:"column",background:"white",borderRadius:10,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
+        <div style={{flex:1,display:panel==="todo"?"none":"flex",flexDirection:"column",background:"white",borderRadius:10,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 14px",borderBottom:"1px solid #E5E7EB",flexShrink:0}}>
             <h2 style={{margin:0,fontSize:13,fontWeight:700}}>📋 週間予定表</h2>
             <span style={{fontSize:10,color:"#94A3B8"}}>{fD(wk[0])}〜{fD(wk[6])}</span>
@@ -1120,7 +1130,7 @@ export default function App() {
         </div>
 
         {/* RIGHT: Todo */}
-        <div style={{width:520,flexShrink:0,display:"flex",flexDirection:"column",background:"white",borderRadius:10,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
+        <div style={{width:panel==="todo"?"100%":520,flexShrink:0,display:panel==="schedule"?"none":"flex",flexDirection:"column",background:"white",borderRadius:10,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
           <div style={{padding:"8px 14px",borderBottom:"1px solid #E5E7EB",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
               <button onClick={() => { const d = new Date(selDate); d.setDate(d.getDate()-1); setSelDate(d); }}
