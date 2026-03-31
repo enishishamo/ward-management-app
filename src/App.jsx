@@ -361,16 +361,10 @@ export default function App() {
   const [aCL, setACL] = useState({});
   const [dCL, setDCL] = useState({});
   const [rlOpen, setRlOpen] = useState({});
-  const [isMobile, setIsMobile] = useState(false);
+  const isMobile = false;
   const [mobileTab, setMobileTab] = useState("todo");
   const [filterDoctor, setFilterDoctor] = useState("all");
   const filteredPats = useMemo(() => filterDoctor === "all" ? sortedPats : sortedPats.filter(p => p.doctor === filterDoctor), [sortedPats, filterDoctor]);
-  useEffect(() => {
-    const h = () => setIsMobile(window.innerWidth < 768);
-    h();
-    window.addEventListener("resize", h);
-    return () => window.removeEventListener("resize", h);
-  }, []);
   useEffect(() => { saveLS("ward_patients", patients); }, [patients]);
   useEffect(() => { saveLS("ward_discharged", discharged); }, [discharged]);
   useEffect(() => { saveLS("ward_orders", orders); }, [orders]);
