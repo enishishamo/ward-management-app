@@ -88,44 +88,8 @@ const Ch = ({open}) => (
 );
 
 // Sample data
-const iPats = [
-  {id:"p1",name:"田中 太郎",room:"HCU",age:72,sex:"M",diagnosis:"肺炎",color:"red",doctor:"山田",
-   admitDate:"3/15",dischargePlan:"3/28",weight:58,cr:1.2,family:"妻・長男",careLevel:"要介護1",lastFamilyCall:"3/20"},
-  {id:"p2",name:"佐藤 花子",room:"4N",age:65,sex:"F",diagnosis:"大腿骨骨折",color:"blue",doctor:"鈴木",
-   admitDate:"3/18",dischargePlan:"4/5",weight:52,cr:0.7,family:"夫・長女",careLevel:"申請中",lastFamilyCall:"3/21",surgery:"3/19"},
-  {id:"p3",name:"鈴木 一郎",room:"5N",age:58,sex:"M",diagnosis:"糖尿病教育入院",color:"green",doctor:"山田",
-   admitDate:"3/20",dischargePlan:"3/27",weight:78,cr:0.9,family:"妻",careLevel:"なし",lastFamilyCall:"3/20"},
-  {id:"p4",name:"山田 美咲",room:"HCU",age:80,sex:"F",diagnosis:"心不全",color:"orange",doctor:"佐藤",
-   admitDate:"3/12",dischargePlan:"",weight:45,cr:1.8,family:"独居・長女(遠方)",careLevel:"要介護2",lastFamilyCall:"3/18"}
-];
-const iOrd = {
-  p1:[{id:1,type:"drip_main",name:"生食500ml",startDate:"3/20",endDate:"3/24"},
-      {id:2,type:"abx",name:"LVFX",startDate:"3/15",endDate:"3/25"},
-      {id:3,type:"med",name:"アセトアミノフェン",startDate:"3/15",endDate:"3/28"},
-      {id:4,type:"lab",name:"血液検査",dates:["3/22","3/25"]},
-      {id:5,type:"culture_blood",name:"血液培養",dates:["3/20"],resultDate:""},
-      {id:6,type:"img",name:"胸部X線",dates:["3/22","3/25"]},
-      {id:7,type:"meeting",name:"家族面談",dates:["3/25"]}],
-  p2:[{id:1,type:"med",name:"ロキソプロフェン",startDate:"3/19",endDate:"3/26"},
-      {id:2,type:"abx",name:"CEZ",startDate:"3/19",endDate:"3/22"},
-      {id:3,type:"lab",name:"血液検査",dates:["3/24"]},
-      {id:4,type:"img",name:"X線",dates:["3/22"]},
-      {id:5,type:"meeting",name:"リハカンファ",dates:["3/26"]}],
-  p3:[{id:1,type:"med",name:"メトホルミン",startDate:"3/20",endDate:"3/27"},
-      {id:2,type:"lab",name:"血液検査",dates:["3/22","3/24"]},
-      {id:3,type:"meeting",name:"栄養指導",dates:["3/24"]}],
-  p4:[{id:1,type:"drip_main",name:"フロセミド",startDate:"3/18",endDate:"3/23"},
-      {id:2,type:"drip_main",name:"DOB",startDate:"3/20",endDate:"3/25"},
-      {id:3,type:"med",name:"カルベジロール",startDate:"3/12",endDate:"3/27"},
-      {id:4,type:"abx",name:"MEPM",startDate:"3/20",endDate:"3/27"},
-      {id:5,type:"lab",name:"血液検査",dates:["3/22"]},
-      {id:6,type:"lab",name:"BNP",dates:["3/22","3/25"]},
-      {id:7,type:"img",name:"心エコー",dates:["3/24"]},
-      {id:8,type:"culture_blood",name:"血液培養",dates:["3/19"],resultDate:"3/22"},
-      {id:9,type:"culture_urine",name:"尿培養",dates:["3/20"],resultDate:""},
-      {id:10,type:"meeting",name:"家族面談",dates:["3/24"]},
-      {id:11,type:"consult",name:"循環器内科",dates:["3/22"]}]
-};
+const iPats = [];
+const iOrd = {};
 
 function emptyCell() {
   return {presetId:null,icon:null,label:"",text:"",type:null,checked:false,priority:null,detail:{},auto:false};
@@ -346,17 +310,17 @@ const saveLS = (key, val) => { try { localStorage.setItem(key, JSON.stringify(va
 export default function App() {
   const [selDate, setSelDate] = useState(new Date());
   const wk = useMemo(() => getWk(selDate), [selDate]);
-  const [patients, setPatients] = useState(() => loadLS("ward_patients", iPats));
-  const [discharged, setDischarged] = useState(() => loadLS("ward_discharged", []));
+  const [patients, setPatients] = useState(() => loadLS("ward_patients_v2", iPats));
+  const [discharged, setDischarged] = useState(() => loadLS("ward_discharged_v2", []));
   const wardOrder = r => { const i = WARDS.indexOf(r); return i >= 0 ? i : 99; };
   const sortedPats = useMemo(() => [...patients].sort((a,b) => wardOrder(a.room) - wardOrder(b.room)), [patients]);
   const doctors = useMemo(() => [...new Set(patients.map(p => p.doctor).filter(Boolean))].sort(), [patients]);
-  const [orders, setOrders] = useState(() => loadLS("ward_orders", (() => { const o = {}; iPats.forEach(p => { o[p.id] = (iOrd[p.id]||[]).map(x => ({...x})); }); return o; })()));
-  const [patCats, setPatCats] = useState(() => loadLS("ward_patCats", (() => { const c = {}; iPats.forEach(p => { c[p.id] = [...DEFAULT_CATS]; }); return c; })()));
-  const [rLabs, setRLabs] = useState(() => loadLS("ward_rLabs", (() => { const r = {}; iPats.forEach(p => { r[p.id] = {}; }); return r; })()));
+  const [orders, setOrders] = useState(() => loadLS("ward_orders_v2", {}));
+  const [patCats, setPatCats] = useState(() => loadLS("ward_patCats_v2", {}));
+  const [rLabs, setRLabs] = useState(() => loadLS("ward_rLabs_v2", {}));
   const [patModal, setPatModal] = useState(null);
   const [catModal, setCatModal] = useState(null);
-  const [expP, setExpP] = useState(() => { const e = {}; iPats.forEach(p => { e[p.id] = true; }); return e; });
+  const [expP, setExpP] = useState({});
   const [showCL, setShowCL] = useState({});
   const [aCL, setACL] = useState({});
   const [dCL, setDCL] = useState({});
@@ -365,12 +329,13 @@ export default function App() {
   const [mobileTab, setMobileTab] = useState("todo");
   const [panel, setPanel] = useState("both");
   const [filterDoctor, setFilterDoctor] = useState("all");
+  const [showDrFilter, setShowDrFilter] = useState(false);
   const filteredPats = useMemo(() => filterDoctor === "all" ? sortedPats : sortedPats.filter(p => p.doctor === filterDoctor), [sortedPats, filterDoctor]);
-  useEffect(() => { saveLS("ward_patients", patients); }, [patients]);
-  useEffect(() => { saveLS("ward_discharged", discharged); }, [discharged]);
-  useEffect(() => { saveLS("ward_orders", orders); }, [orders]);
-  useEffect(() => { saveLS("ward_patCats", patCats); }, [patCats]);
-  useEffect(() => { saveLS("ward_rLabs", rLabs); }, [rLabs]);
+  useEffect(() => { saveLS("ward_patients_v2", patients); }, [patients]);
+  useEffect(() => { saveLS("ward_discharged_v2", discharged); }, [discharged]);
+  useEffect(() => { saveLS("ward_orders_v2", orders); }, [orders]);
+  useEffect(() => { saveLS("ward_patCats_v2", patCats); }, [patCats]);
+  useEffect(() => { saveLS("ward_rLabs_v2", rLabs); }, [rLabs]);
   const today = tdL();
 
   const addOrUpdatePat = p => {
@@ -380,7 +345,12 @@ export default function App() {
     if (!patCats[p.id]) setPatCats(pr => ({...pr, [p.id]: [...DEFAULT_CATS]}));
     setExpP(pr => ({...pr, [p.id]: true}));
   };
-  const dischargePat = pid => { const p = patients.find(x => x.id === pid); if (!p) return; setDischarged(pr => [...pr, {...p, dischargeDate: today}]); setPatients(pr => pr.filter(x => x.id !== pid)); };
+  const dischargePat = pid => {
+    const p = patients.find(x => x.id === pid); if (!p) return;
+    const fu = window.prompt("外来フォロー予定日（例: 4/15）。なければ空白のままEnter");
+    setDischarged(pr => [...pr, {...p, dischargeDate: today, followUp: fu||""}]);
+    setPatients(pr => pr.filter(x => x.id !== pid));
+  };
   const extBar = (pid, oid, ds) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => o.id === oid ? {...o, endDate: ds} : o)}));
   const togDot = (pid, oid, ds) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => { if (o.id !== oid) return o; const d = o.dates||[]; return {...o, dates: d.includes(ds) ? d.filter(x => x !== ds) : [...d, ds].sort()}; })}));
   const addOrd = (pid, type) => { const bar = ["drip_main","med","abx"].includes(type); setOrders(p => ({...p, [pid]: [...(p[pid]||[]), {id:Date.now(),type,name:"",dates:bar?undefined:[],startDate:bar?today:undefined,endDate:bar?today:undefined,...(type.startsWith("culture")?{resultDate:""}:{})}]})); };
@@ -769,42 +739,39 @@ export default function App() {
   return (
     <div style={{width:"100%",height:"100vh",display:"flex",flexDirection:"column",fontFamily:"'Noto Sans JP','Hiragino Sans',sans-serif",background:"#F1F5F9",color:"#1E293B"}}>
       {/* Header */}
-      <header style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 12px",height:44,background:"white",borderBottom:"1px solid #E2E8F0",flexShrink:0}}>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <span style={{fontSize:16,width:28,height:28,borderRadius:7,background:"linear-gradient(135deg,#3B82F6,#1D4ED8)",display:"flex",alignItems:"center",justifyContent:"center",color:"white"}}>🏥</span>
-          <div style={{fontSize:14,fontWeight:800}}>病棟管理</div>
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:6}}>
-          {!isMobile && filteredPats.map(p => { const cl = COL[p.color]; return (
-            <span key={p.id} style={{display:"inline-flex",alignItems:"center",gap:2,padding:"2px 6px",background:cl.bg,border:"1px solid "+cl.bd,borderRadius:14,fontSize:9,color:cl.tx,fontWeight:600}}>
-              <span style={{width:5,height:5,borderRadius:"50%",background:cl.dt}}/>{p.name.split(" ")[0]}
-            </span>
-          ); })}
-          <button onClick={() => setPatModal({})} style={{border:"1px solid #3B82F6",background:"#EFF6FF",borderRadius:6,padding:"4px 10px",fontSize:10,fontWeight:700,color:"#3B82F6",cursor:"pointer"}}>＋患者</button>
-        </div>
-      </header>
-
-      {/* Doctor filter bar */}
-      <div style={{display:"flex",gap:6,padding:"6px 12px",background:"white",borderBottom:"1px solid #E2E8F0",flexShrink:0,overflowX:"auto"}}>
-        {["all",...doctors].map(d => (
-          <button key={d} onClick={() => setFilterDoctor(d)}
-            style={{border:"none",borderRadius:16,padding:"4px 12px",fontSize:11,fontWeight:700,whiteSpace:"nowrap",cursor:"pointer",
-              background: filterDoctor===d ? "#3B82F6" : "#F1F5F9",
-              color: filterDoctor===d ? "white" : "#475569"}}>
-            {d === "all" ? "全員" : d+"Dr"}
-          </button>
-        ))}
-        <div style={{display:"flex",gap:4,marginLeft:"auto",flexShrink:0}}>
+      <header style={{display:"flex",alignItems:"center",gap:8,padding:"0 12px",height:48,background:"white",borderBottom:"1px solid #E2E8F0",flexShrink:0}}>
+        <span style={{fontSize:16,width:28,height:28,borderRadius:7,background:"linear-gradient(135deg,#3B82F6,#1D4ED8)",display:"flex",alignItems:"center",justifyContent:"center",color:"white",flexShrink:0}}>🏥</span>
+        <div style={{fontSize:14,fontWeight:800,flexShrink:0}}>病棟管理</div>
+        {/* Panel tabs */}
+        <div style={{display:"flex",gap:3,marginLeft:8}}>
           {[["schedule","📋 予定表"],["todo","✅ 今日"],["both","両方"]].map(([v,l]) => (
             <button key={v} onClick={() => setPanel(v)}
-              style={{border:"none",borderRadius:16,padding:"4px 12px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",
+              style={{border:"none",borderRadius:6,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",
                 background:panel===v?"#1E293B":"#F1F5F9",color:panel===v?"white":"#475569"}}>
               {l}
             </button>
           ))}
         </div>
-        {discharged.length > 0 && <span style={{fontSize:9,color:"#94A3B8",alignSelf:"center"}}>退院済:{discharged.length}名</span>}
-      </div>
+        {/* Doctor filter toggle */}
+        <div style={{position:"relative",marginLeft:4}}>
+          <button onClick={() => setShowDrFilter(v => !v)}
+            style={{border:"1px solid "+(filterDoctor!=="all"?"#3B82F6":"#E2E8F0"),background:filterDoctor!=="all"?"#EFF6FF":"#F8FAFC",borderRadius:6,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",color:filterDoctor!=="all"?"#3B82F6":"#475569"}}>
+            👨‍⚕️ {filterDoctor==="all"?"主治医":"Dr:"+filterDoctor}
+          </button>
+          {showDrFilter && (
+            <div style={{position:"absolute",top:"100%",left:0,zIndex:100,background:"white",border:"1px solid #E2E8F0",borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.12)",padding:6,marginTop:2,minWidth:120}}>
+              {["all",...doctors].map(d => (
+                <button key={d} onClick={() => { setFilterDoctor(d); setShowDrFilter(false); }}
+                  style={{display:"block",width:"100%",textAlign:"left",border:"none",background:filterDoctor===d?"#EFF6FF":"transparent",borderRadius:4,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer",color:filterDoctor===d?"#3B82F6":"#334155"}}>
+                  {d==="all"?"全員（絞り込みなし）":d+" Dr"}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div style={{flex:1}}/>
+        <button onClick={() => setPatModal({})} style={{border:"1px solid #3B82F6",background:"#EFF6FF",borderRadius:6,padding:"5px 12px",fontSize:11,fontWeight:700,color:"#3B82F6",cursor:"pointer",flexShrink:0}}>＋患者</button>
+      </header>
 
       {/* Main panels */}
       <div style={{flex:1,display:"flex",overflow:"hidden",gap:isMobile?0:8,padding:isMobile?0:8}}>
@@ -1108,9 +1075,14 @@ export default function App() {
         {!isMobile && <>
         {/* LEFT: Schedule */}
         <div style={{flex:1,display:panel==="todo"?"none":"flex",flexDirection:"column",background:"white",borderRadius:10,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 14px",borderBottom:"1px solid #E5E7EB",flexShrink:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 14px",borderBottom:"1px solid #E5E7EB",flexShrink:0}}>
             <h2 style={{margin:0,fontSize:13,fontWeight:700}}>📋 週間予定表</h2>
-            <span style={{fontSize:10,color:"#94A3B8"}}>{fD(wk[0])}〜{fD(wk[6])}</span>
+            <div style={{display:"flex",alignItems:"center",gap:4,marginLeft:"auto"}}>
+              <button onClick={() => { const d=new Date(selDate); d.setDate(d.getDate()-7); setSelDate(d); }} style={{border:"1px solid #E2E8F0",background:"white",borderRadius:4,width:24,height:24,cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center"}}>◀</button>
+              <span style={{fontSize:10,color:"#64748B",fontWeight:600}}>{fD(wk[0])}〜{fD(wk[6])}</span>
+              <button onClick={() => { const d=new Date(selDate); d.setDate(d.getDate()+7); setSelDate(d); }} style={{border:"1px solid #E2E8F0",background:"white",borderRadius:4,width:24,height:24,cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center"}}>▶</button>
+              <button onClick={() => setSelDate(new Date())} style={{border:"1px solid #E2E8F0",background:"white",borderRadius:4,padding:"2px 6px",fontSize:9,color:"#64748B",cursor:"pointer"}}>今週</button>
+            </div>
           </div>
           <div style={{flex:1,overflow:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed"}}>
@@ -1124,7 +1096,21 @@ export default function App() {
                   </th>
                 ); })}
               </tr></thead>
-              <tbody>{filteredPats.map(p => renderGanttPatient(p))}</tbody>
+              <tbody>
+                {filteredPats.map(p => renderGanttPatient(p))}
+                {discharged.filter(p => p.followUp && wk.some(d => fD(d) === p.followUp)).map(p => (
+                  <tr key={p.id+"_fu"} style={{background:"#F5F3FF"}}>
+                    <td style={{padding:"4px 6px",borderBottom:"1px solid #DDD6FE",fontSize:9,color:"#6D28D9",fontWeight:700}}>
+                      🏥 外来 {p.name.split(" ")[0]}（{p.diagnosis}）
+                    </td>
+                    {wk.map((d,i) => (
+                      <td key={i} style={{padding:"2px 1px",borderBottom:"1px solid #DDD6FE",borderLeft:"1px solid #EDE9FE",textAlign:"center"}}>
+                        {fD(d)===p.followUp && <div style={{fontSize:8,background:"#7C3AED",color:"white",borderRadius:3,padding:"1px 3px",fontWeight:700}}>外来</div>}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
             </table>
           </div>
         </div>
@@ -1144,6 +1130,13 @@ export default function App() {
             </div>
             <button onClick={() => setSelDate(new Date())} style={{border:"1px solid #E2E8F0",background:"white",borderRadius:4,padding:"2px 8px",fontSize:8,color:"#64748B",cursor:"pointer",fontWeight:600}}>今日に戻る</button>
           </div>
+
+          {/* Follow-up alert */}
+          {discharged.filter(p => p.followUp === selDateStr).map(p => (
+            <div key={p.id} style={{padding:"5px 12px",background:"#F5F3FF",borderBottom:"1px solid #DDD6FE",fontSize:10,color:"#6D28D9",fontWeight:700,flexShrink:0}}>
+              🏥 外来フォロー: {p.name}（{p.diagnosis}）
+            </div>
+          ))}
 
           {/* Priority bar */}
           {priList.length > 0 && (
