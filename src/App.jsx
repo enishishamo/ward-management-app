@@ -118,13 +118,29 @@ const FAMILY_OPTS = ["配偶者","子供","独居","施設入所","キーパー�
 // Modals
 function PatientModal({onSave, onClose, edit, doctors, usedColors}) {
   const autoColor = () => { const used = usedColors||[]; return COLORS.find(c => !used.includes(c)) || COLORS[0]; };
+  // Convert M/D string to YYYY-MM-DD for date input
+  const toDateVal = s => { const d = pMD(s); if (!d) return ""; const m = String(d.getMonth()+1).padStart(2,"0"), dd = String(d.getDate()).padStart(2,"0"); return `2026-${m}-${dd}`; };
+  const fromDateVal = v => { if (!v) return ""; const [,m,d] = v.split("-"); return `${parseInt(m)}/${parseInt(d)}`; };
+  const initAdmit = edit ? toDateVal(edit.admitDate) : toDateVal(tdL());
   const [f, setF] = useState(edit || {name:"",room:"",age:"",sex:"M",diagnosis:"",color:autoColor(),doctor:"",admitDate:tdL(),weight:"",cr:"",family:"",careLevel:"",dischargePlan:"",lastFamilyCall:""});
+  const [admitDateVal, setAdmitDateVal] = useState(initAdmit);
   const [newDr, setNewDr] = useState("");
-  const s = (k, v) => setF(p => ({...p, [k]: v}));
+  const [showCare, setShowCare] = useState(!!(edit?.careLevel));
+  const [showFamily, setShowFamily] = useState(!!(edit?.family));
+  const sv = (k, v) => setF(p => ({...p, [k]: v}));
   const I = {fontSize:13,border:"1px solid #E2E8F0",borderRadius:8,padding:"8px 10px",width:"100%",outline:"none",fontFamily:"inherit",boxSizing:"border-box"};
   const Lbl = ({children}) => <div style={{fontSize:11,color:"#64748B",fontWeight:700,marginBottom:4}}>{children}</div>;
   const Btn = ({active, onClick, children}) => (
     <button onClick={onClick} style={{border:active?"2px solid #3B82F6":"1px solid #E2E8F0",background:active?"#EFF6FF":"white",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:600,cursor:"pointer",color:active?"#1D4ED8":"#475569"}}>{children}</button>
+  );
+  const ToggleHeader = ({label, open, onToggle, value}) => (
+    <button onClick={onToggle} style={{width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid #E2E8F0",background:open?"#F8FAFC":"white",borderRadius:8,padding:"8px 12px",cursor:"pointer",textAlign:"left"}}>
+      <span style={{fontSize:11,color:"#64748B",fontWeight:700}}>{label}</span>
+      <span style={{display:"flex",alignItems:"center",gap:6}}>
+        {value && <span style={{fontSize:11,color:"#3B82F6",fontWeight:600,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{value}</span>}
+        <span style={{fontSize:12,color:"#94A3B8",transform:open?"rotate(90deg)":"rotate(0)",display:"inline-block",transition:"0.15s"}}>▶</span>
+      </span>
+    </button>
   );
   return (
     <div style={{position:"fixed",inset:0,zIndex:200,background:"rgba(15,23,42,0.5)",backdropFilter:"blur(4px)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={onClose}>
@@ -135,68 +151,77 @@ function PatientModal({onSave, onClose, edit, doctors, usedColors}) {
         </div>
         <div style={{padding:"16px 20px",display:"flex",flexDirection:"column",gap:14,overflowY:"auto"}}>
           {/* 氏名 */}
-          <div><Lbl>氏名 *</Lbl><input value={f.name} onChange={e => s("name",e.target.value)} placeholder="例: 田中 太郎" style={I}/></div>
+          <div><Lbl>氏名 *</Lbl><input value={f.name} onChange={e => sv("name",e.target.value)} placeholder="例: 田中 太郎" style={I}/></div>
           {/* 病棟・年齢・性別 */}
           <div style={{display:"flex",gap:8}}>
             <div style={{flex:1.2}}>
               <Lbl>病棟 *</Lbl>
-              <select value={f.room} onChange={e => s("room",e.target.value)} style={{...I,padding:"8px 6px"}}>
+              <select value={f.room} onChange={e => sv("room",e.target.value)} style={{...I,padding:"8px 6px"}}>
                 <option value="">選択</option>
                 {WARDS.map(w => <option key={w}>{w}</option>)}
               </select>
             </div>
             <div style={{flex:1}}>
               <Lbl>年齢</Lbl>
-              <input value={f.age} onChange={e => s("age",e.target.value)} placeholder="72" style={I} type="number"/>
+              <input value={f.age} onChange={e => sv("age",e.target.value)} placeholder="72" style={I} type="number"/>
             </div>
             <div style={{flex:1}}>
               <Lbl>性別</Lbl>
               <div style={{display:"flex",gap:4}}>
-                <Btn active={f.sex==="M"} onClick={() => s("sex","M")}>♂</Btn>
-                <Btn active={f.sex==="F"} onClick={() => s("sex","F")}>♀</Btn>
+                <Btn active={f.sex==="M"} onClick={() => sv("sex","M")}>男</Btn>
+                <Btn active={f.sex==="F"} onClick={() => sv("sex","F")}>女</Btn>
               </div>
             </div>
           </div>
           {/* 診断名・入院日 */}
           <div style={{display:"flex",gap:8}}>
-            <div style={{flex:2}}><Lbl>診断名</Lbl><input value={f.diagnosis} onChange={e => s("diagnosis",e.target.value)} placeholder="肺炎" style={I}/></div>
-            <div style={{flex:1}}><Lbl>入院日</Lbl><input value={f.admitDate} onChange={e => s("admitDate",e.target.value)} placeholder="4/1" style={I}/></div>
+            <div style={{flex:2}}><Lbl>診断名</Lbl><input value={f.diagnosis} onChange={e => sv("diagnosis",e.target.value)} placeholder="肺炎" style={I}/></div>
+            <div style={{flex:1}}>
+              <Lbl>入院日</Lbl>
+              <input type="date" value={admitDateVal} onChange={e => { setAdmitDateVal(e.target.value); sv("admitDate", fromDateVal(e.target.value)); }} style={{...I,padding:"7px 6px"}}/>
+            </div>
           </div>
           {/* 主治医 */}
           <div>
             <Lbl>主治医</Lbl>
             <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:6}}>
-              {doctors.map(d => <Btn key={d} active={f.doctor===d} onClick={() => s("doctor",d)}>{d} Dr</Btn>)}
+              {doctors.map(d => <Btn key={d} active={f.doctor===d} onClick={() => sv("doctor",d)}>{d} Dr</Btn>)}
               <Btn active={false} onClick={() => {}}>
-                <input value={newDr} onChange={e => { setNewDr(e.target.value); s("doctor",e.target.value); }} placeholder="新規入力..." style={{border:"none",outline:"none",fontSize:12,width:70,fontFamily:"inherit"}}/>
+                <input value={newDr} onChange={e => { setNewDr(e.target.value); sv("doctor",e.target.value); }} placeholder="新規入力..." style={{border:"none",outline:"none",fontSize:12,width:70,fontFamily:"inherit"}}/>
               </Btn>
             </div>
           </div>
           {/* 体重・Cr */}
           <div style={{display:"flex",gap:8}}>
-            <div style={{flex:1}}><Lbl>体重 (kg)</Lbl><input value={f.weight} onChange={e => s("weight",e.target.value)} placeholder="60" style={I} type="number"/></div>
-            <div style={{flex:1}}><Lbl>Cr</Lbl><input value={f.cr} onChange={e => s("cr",e.target.value)} placeholder="0.8" style={I} type="number" step="0.1"/></div>
+            <div style={{flex:1}}><Lbl>体重 (kg)</Lbl><input value={f.weight} onChange={e => sv("weight",e.target.value)} placeholder="60" style={I} type="number"/></div>
+            <div style={{flex:1}}><Lbl>Cr</Lbl><input value={f.cr} onChange={e => sv("cr",e.target.value)} placeholder="0.8" style={I} type="number" step="0.1"/></div>
           </div>
-          {/* 介護度 */}
+          {/* 介護度 トグル */}
           <div>
-            <Lbl>介護度</Lbl>
-            <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-              {CARE_LEVELS.map(c => <Btn key={c} active={f.careLevel===c} onClick={() => s("careLevel",c)}>{c}</Btn>)}
-            </div>
+            <ToggleHeader label="介護度" open={showCare} onToggle={() => setShowCare(p => !p)} value={f.careLevel||undefined}/>
+            {showCare && (
+              <div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:8}}>
+                {CARE_LEVELS.map(c => <Btn key={c} active={f.careLevel===c} onClick={() => sv("careLevel",c)}>{c}</Btn>)}
+              </div>
+            )}
           </div>
-          {/* 家族構成 */}
+          {/* 家族構成 トグル */}
           <div>
-            <Lbl>家族構成</Lbl>
-            <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:6}}>
-              {FAMILY_OPTS.map(o => <Btn key={o} active={(f.family||"").includes(o)} onClick={() => s("family", (f.family||"").includes(o) ? (f.family||"").replace(o,"").trim() : [(f.family||""),o].filter(Boolean).join("・"))}>{o}</Btn>)}
-            </div>
-            <input value={f.family||""} onChange={e => s("family",e.target.value)} placeholder="自由記入も可" style={I}/>
+            <ToggleHeader label="家族構成" open={showFamily} onToggle={() => setShowFamily(p => !p)} value={f.family||undefined}/>
+            {showFamily && (
+              <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:6}}>
+                <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+                  {FAMILY_OPTS.map(o => <Btn key={o} active={(f.family||"").includes(o)} onClick={() => sv("family", (f.family||"").includes(o) ? (f.family||"").replace(o,"").replace("・・","・").replace(/^・|・$/g,"") : [(f.family||""),o].filter(Boolean).join("・"))}>{o}</Btn>)}
+                </div>
+                <input value={f.family||""} onChange={e => sv("family",e.target.value)} placeholder="自由記入も可" style={I}/>
+              </div>
+            )}
           </div>
           {/* 編集時のみ: 退院予定・最終TEL */}
           {edit && (
             <div style={{display:"flex",gap:8}}>
-              <div style={{flex:1}}><Lbl>退院予定</Lbl><input value={f.dischargePlan||""} onChange={e => s("dischargePlan",e.target.value)} placeholder="4/15" style={I}/></div>
-              <div style={{flex:1}}><Lbl>最終家族TEL</Lbl><input value={f.lastFamilyCall||""} onChange={e => s("lastFamilyCall",e.target.value)} placeholder="4/1" style={I}/></div>
+              <div style={{flex:1}}><Lbl>退院予定</Lbl><input value={f.dischargePlan||""} onChange={e => sv("dischargePlan",e.target.value)} placeholder="4/15" style={I}/></div>
+              <div style={{flex:1}}><Lbl>最終家族TEL</Lbl><input value={f.lastFamilyCall||""} onChange={e => sv("lastFamilyCall",e.target.value)} placeholder="4/1" style={I}/></div>
             </div>
           )}
         </div>
