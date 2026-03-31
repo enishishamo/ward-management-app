@@ -112,66 +112,98 @@ function mkAutoTasks(today, orders, patients) {
   return t;
 }
 
+const CARE_LEVELS = ["なし","要支援1","要支援2","要介護1","要介護2","要介護3","要介護4","要介護5","申請中"];
+const FAMILY_OPTS = ["配偶者","子供","独居","施設入所","キーパーソン遠方"];
+
 // Modals
-function PatientModal({onSave, onClose, edit}) {
-  const [f, setF] = useState(edit || {name:"",room:"",age:"",sex:"M",diagnosis:"",color:COLORS[0],doctor:"",
-    admitDate:tdL(),dischargePlan:"",weight:"",cr:"",family:"",careLevel:"",lastFamilyCall:""});
+function PatientModal({onSave, onClose, edit, doctors, usedColors}) {
+  const autoColor = () => { const used = usedColors||[]; return COLORS.find(c => !used.includes(c)) || COLORS[0]; };
+  const [f, setF] = useState(edit || {name:"",room:"",age:"",sex:"M",diagnosis:"",color:autoColor(),doctor:"",admitDate:tdL(),weight:"",cr:"",family:"",careLevel:"",dischargePlan:"",lastFamilyCall:""});
+  const [newDr, setNewDr] = useState("");
   const s = (k, v) => setF(p => ({...p, [k]: v}));
-  const L = {fontSize:9,color:"#64748B",fontWeight:600,width:55,flexShrink:0};
-  const I = {...ip,fontSize:11,flex:1,border:"1px solid #E2E8F0",borderRadius:4,padding:"4px 6px",background:"white",width:"auto"};
+  const I = {fontSize:13,border:"1px solid #E2E8F0",borderRadius:8,padding:"8px 10px",width:"100%",outline:"none",fontFamily:"inherit",boxSizing:"border-box"};
+  const Lbl = ({children}) => <div style={{fontSize:11,color:"#64748B",fontWeight:700,marginBottom:4}}>{children}</div>;
+  const Btn = ({active, onClick, children}) => (
+    <button onClick={onClick} style={{border:active?"2px solid #3B82F6":"1px solid #E2E8F0",background:active?"#EFF6FF":"white",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:600,cursor:"pointer",color:active?"#1D4ED8":"#475569"}}>{children}</button>
+  );
   return (
-    <div style={{position:"fixed",inset:0,zIndex:200,background:"rgba(15,23,42,0.4)",backdropFilter:"blur(4px)",
-      display:"flex",alignItems:"center",justifyContent:"center"}} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{width:400,background:"white",borderRadius:14,
-        boxShadow:"0 25px 60px rgba(0,0,0,0.2)",overflow:"hidden"}}>
-        <div style={{padding:"14px 20px",borderBottom:"1px solid #E2E8F0",display:"flex",justifyContent:"space-between"}}>
-          <h3 style={{margin:0,fontSize:14,fontWeight:800}}>{edit ? "患者編集" : "新規患者"}</h3>
-          <button onClick={onClose} style={{border:"none",background:"rgba(0,0,0,0.05)",borderRadius:6,width:28,height:28,cursor:"pointer",fontSize:14}}>✕</button>
+    <div style={{position:"fixed",inset:0,zIndex:200,background:"rgba(15,23,42,0.5)",backdropFilter:"blur(4px)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{width:"100%",maxWidth:420,background:"white",borderRadius:16,boxShadow:"0 25px 60px rgba(0,0,0,0.25)",overflow:"hidden",maxHeight:"90vh",display:"flex",flexDirection:"column"}}>
+        <div style={{padding:"16px 20px",borderBottom:"1px solid #E2E8F0",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+          <h3 style={{margin:0,fontSize:16,fontWeight:800}}>{edit ? "患者編集" : "新規患者"}</h3>
+          <button onClick={onClose} style={{border:"none",background:"#F1F5F9",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:16}}>✕</button>
         </div>
-        <div style={{padding:"14px 20px",display:"flex",flexDirection:"column",gap:6}}>
-          {[["name","氏名"],["age","年齢"],["diagnosis","診断名"],["doctor","主治医"],["admitDate","入院日"],
-            ["dischargePlan","退院予定"],["weight","体重kg"],["cr","Cr"],
-            ["family","家族構成"],["careLevel","介護度"],["lastFamilyCall","最終TEL"]
-          ].map(([k,l]) => (
-            <div key={k} style={{display:"flex",alignItems:"center",gap:6}}>
-              <span style={L}>{l}</span>
-              <input value={f[k]||""} onChange={e => s(k, e.target.value)} style={I}/>
+        <div style={{padding:"16px 20px",display:"flex",flexDirection:"column",gap:14,overflowY:"auto"}}>
+          {/* 氏名 */}
+          <div><Lbl>氏名 *</Lbl><input value={f.name} onChange={e => s("name",e.target.value)} placeholder="例: 田中 太郎" style={I}/></div>
+          {/* 病棟・年齢・性別 */}
+          <div style={{display:"flex",gap:8}}>
+            <div style={{flex:1.2}}>
+              <Lbl>病棟 *</Lbl>
+              <select value={f.room} onChange={e => s("room",e.target.value)} style={{...I,padding:"8px 6px"}}>
+                <option value="">選択</option>
+                {WARDS.map(w => <option key={w}>{w}</option>)}
+              </select>
             </div>
-          ))}
-          <div style={{display:"flex",alignItems:"center",gap:6}}>
-            <span style={L}>病棟</span>
-            <select value={f.room||""} onChange={e => s("room", e.target.value)}
-              style={{...I,flex:"none",width:80}}>
-              <option value="">選択</option>
-              {WARDS.map(w => <option key={w} value={w}>{w}</option>)}
-            </select>
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:6}}>
-            <span style={L}>性別</span>
-            {["M","F"].map(x => (
-              <button key={x} onClick={() => s("sex", x)}
-                style={{border:f.sex===x?"2px solid #3B82F6":"1px solid #E2E8F0",
-                  background:f.sex===x?"#EFF6FF":"white",borderRadius:6,padding:"3px 12px",
-                  fontSize:11,fontWeight:600,cursor:"pointer"}}>
-                {x==="M"?"♂男":"♀女"}
-              </button>
-            ))}
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:6}}>
-            <span style={L}>カラー</span>
-            <div style={{display:"flex",gap:4}}>
-              {COLORS.map(c => (
-                <div key={c} onClick={() => s("color", c)}
-                  style={{width:18,height:18,borderRadius:"50%",background:COL[c].dt,
-                    border:f.color===c?"3px solid #1E293B":"2px solid transparent",cursor:"pointer"}}/>
-              ))}
+            <div style={{flex:1}}>
+              <Lbl>年齢</Lbl>
+              <input value={f.age} onChange={e => s("age",e.target.value)} placeholder="72" style={I} type="number"/>
+            </div>
+            <div style={{flex:1}}>
+              <Lbl>性別</Lbl>
+              <div style={{display:"flex",gap:4}}>
+                <Btn active={f.sex==="M"} onClick={() => s("sex","M")}>♂</Btn>
+                <Btn active={f.sex==="F"} onClick={() => s("sex","F")}>♀</Btn>
+              </div>
             </div>
           </div>
+          {/* 診断名・入院日 */}
+          <div style={{display:"flex",gap:8}}>
+            <div style={{flex:2}}><Lbl>診断名</Lbl><input value={f.diagnosis} onChange={e => s("diagnosis",e.target.value)} placeholder="肺炎" style={I}/></div>
+            <div style={{flex:1}}><Lbl>入院日</Lbl><input value={f.admitDate} onChange={e => s("admitDate",e.target.value)} placeholder="4/1" style={I}/></div>
+          </div>
+          {/* 主治医 */}
+          <div>
+            <Lbl>主治医</Lbl>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:6}}>
+              {doctors.map(d => <Btn key={d} active={f.doctor===d} onClick={() => s("doctor",d)}>{d} Dr</Btn>)}
+              <Btn active={false} onClick={() => {}}>
+                <input value={newDr} onChange={e => { setNewDr(e.target.value); s("doctor",e.target.value); }} placeholder="新規入力..." style={{border:"none",outline:"none",fontSize:12,width:70,fontFamily:"inherit"}}/>
+              </Btn>
+            </div>
+          </div>
+          {/* 体重・Cr */}
+          <div style={{display:"flex",gap:8}}>
+            <div style={{flex:1}}><Lbl>体重 (kg)</Lbl><input value={f.weight} onChange={e => s("weight",e.target.value)} placeholder="60" style={I} type="number"/></div>
+            <div style={{flex:1}}><Lbl>Cr</Lbl><input value={f.cr} onChange={e => s("cr",e.target.value)} placeholder="0.8" style={I} type="number" step="0.1"/></div>
+          </div>
+          {/* 介護度 */}
+          <div>
+            <Lbl>介護度</Lbl>
+            <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+              {CARE_LEVELS.map(c => <Btn key={c} active={f.careLevel===c} onClick={() => s("careLevel",c)}>{c}</Btn>)}
+            </div>
+          </div>
+          {/* 家族構成 */}
+          <div>
+            <Lbl>家族構成</Lbl>
+            <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:6}}>
+              {FAMILY_OPTS.map(o => <Btn key={o} active={(f.family||"").includes(o)} onClick={() => s("family", (f.family||"").includes(o) ? (f.family||"").replace(o,"").trim() : [(f.family||""),o].filter(Boolean).join("・"))}>{o}</Btn>)}
+            </div>
+            <input value={f.family||""} onChange={e => s("family",e.target.value)} placeholder="自由記入も可" style={I}/>
+          </div>
+          {/* 編集時のみ: 退院予定・最終TEL */}
+          {edit && (
+            <div style={{display:"flex",gap:8}}>
+              <div style={{flex:1}}><Lbl>退院予定</Lbl><input value={f.dischargePlan||""} onChange={e => s("dischargePlan",e.target.value)} placeholder="4/15" style={I}/></div>
+              <div style={{flex:1}}><Lbl>最終家族TEL</Lbl><input value={f.lastFamilyCall||""} onChange={e => s("lastFamilyCall",e.target.value)} placeholder="4/1" style={I}/></div>
+            </div>
+          )}
         </div>
-        <div style={{padding:"12px 20px",borderTop:"1px solid #E2E8F0",display:"flex",justifyContent:"flex-end",gap:8}}>
-          <button onClick={onClose} style={{border:"1px solid #E2E8F0",background:"white",borderRadius:6,padding:"5px 14px",fontSize:11,cursor:"pointer"}}>取消</button>
-          <button onClick={() => { onSave({...f, id:edit?.id||"p_"+Date.now(), age:parseInt(f.age)||0, weight:parseFloat(f.weight)||0, cr:parseFloat(f.cr)||0}); onClose(); }}
-            style={{border:"none",background:"#3B82F6",color:"white",borderRadius:6,padding:"5px 14px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+        <div style={{padding:"14px 20px",borderTop:"1px solid #E2E8F0",display:"flex",gap:8,flexShrink:0}}>
+          <button onClick={onClose} style={{flex:1,border:"1px solid #E2E8F0",background:"white",borderRadius:10,padding:"10px",fontSize:13,cursor:"pointer",fontWeight:600}}>取消</button>
+          <button onClick={() => { if (!f.name||!f.room) return; onSave({...f,id:edit?.id||"p_"+Date.now(),age:parseInt(f.age)||0,weight:parseFloat(f.weight)||0,cr:parseFloat(f.cr)||0}); onClose(); }}
+            style={{flex:2,border:"none",background:"#3B82F6",color:"white",borderRadius:10,padding:"10px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
             {edit ? "更新" : "登録"}
           </button>
         </div>
@@ -1326,7 +1358,7 @@ export default function App() {
         </>}
       </div>
       {/* Modals */}
-      {patModal !== null && <PatientModal edit={patModal.edit} onSave={addOrUpdatePat} onClose={() => setPatModal(null)}/>}
+      {patModal !== null && <PatientModal edit={patModal.edit} onSave={addOrUpdatePat} onClose={() => setPatModal(null)} doctors={doctors} usedColors={patients.map(p=>p.color)}/>}
       {catModal && <AddCatModal onAdd={c => setPatCats(pr => ({...pr,[catModal]:[...(pr[catModal]||DEFAULT_CATS),c]}))} onClose={() => setCatModal(null)}/>}
     </div>
   );
