@@ -916,32 +916,59 @@ export default function App() {
                         </div>
 
                         {/* AM tasks */}
-                        {amTasks.length > 0 && (
-                          <div style={{padding:"8px 14px",borderBottom:"1px solid #F1F5F9"}}>
-                            <div style={{fontSize:11,fontWeight:700,color:"#3B82F6",marginBottom:4}}>AM</div>
-                            {amTasks.map(({key, cell}) => (
-                              <div key={key} style={{display:"flex",alignItems:"center",gap:10,padding:"5px 0",opacity:cell.checked?0.45:1}}>
-                                <div onClick={() => compT(key)} style={ck(cell.checked,c.dt,22)}>{cell.checked && <Tk s={13}/>}</div>
-                                <span style={{fontSize:14,flex:1,textDecoration:cell.checked?"line-through":"none"}}>{cell.icon} {cell.label||cell.text}</span>
-                                {cell.priority && <span style={{background:"#FEF3C7",color:"#92400E",borderRadius:4,padding:"1px 6px",fontSize:11,fontWeight:700}}>{cell.priority}</span>}
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                        <div style={{padding:"8px 14px",borderBottom:"1px solid #F1F5F9"}}>
+                          <div style={{fontSize:11,fontWeight:700,color:"#3B82F6",marginBottom:4}}>AM</div>
+                          {amTasks.map(({key, cell}) => (
+                            <div key={key} style={{display:"flex",alignItems:"center",gap:10,padding:"5px 0",opacity:cell.checked?0.45:1}}>
+                              <div onClick={() => compT(key)} style={ck(cell.checked,c.dt,22)}>{cell.checked && <Tk s={13}/>}</div>
+                              <span style={{fontSize:14,flex:1,textDecoration:cell.checked?"line-through":"none"}}>{cell.icon} {cell.label||cell.text}</span>
+                              <button onClick={() => setAmC(prev => ({...prev,[key]:emptyCell()}))} style={{border:"none",background:"transparent",color:"#CBD5E1",fontSize:16,cursor:"pointer",padding:"0 4px"}}>✕</button>
+                            </div>
+                          ))}
+                          {amTasks.length < AM && (
+                            <div style={{position:"relative"}}>
+                              {PRESETS.map((pr2, pi) => (
+                                <button key={pr2.id} onClick={() => {
+                                  const slot = Array.from({length:AM},(_,ri)=>ri).find(ri => !(amC["am"+ri+"_"+p.id]||{}).presetId);
+                                  if (slot == null) return;
+                                  const key2 = "am"+slot+"_"+p.id;
+                                  const newCell = {...emptyCell(),presetId:pr2.id,icon:pr2.icon,label:pr2.label,type:pr2.type};
+                                  setAmC(prev => ({...prev,[key2]:newCell}));
+                                  syncTaskToOrder(p.id, newCell, emptyCell());
+                                }} style={{display:"inline-flex",alignItems:"center",gap:4,margin:"2px",padding:"5px 10px",borderRadius:16,border:"1px solid #E2E8F0",background:"#F8FAFC",fontSize:12,color:"#475569",cursor:"pointer"}}>
+                                  {pr2.icon} {pr2.label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
 
                         {/* PM tasks */}
-                        {pmTasks.length > 0 && (
-                          <div style={{padding:"8px 14px",borderBottom:"1px solid #F1F5F9"}}>
-                            <div style={{fontSize:11,fontWeight:700,color:"#8B5CF6",marginBottom:4}}>PM</div>
-                            {pmTasks.map(({key, cell}) => (
-                              <div key={key} style={{display:"flex",alignItems:"center",gap:10,padding:"5px 0",opacity:cell.checked?0.45:1}}>
-                                <div onClick={() => compT(key)} style={ck(cell.checked,c.dt,22)}>{cell.checked && <Tk s={13}/>}</div>
-                                <span style={{fontSize:14,flex:1,textDecoration:cell.checked?"line-through":"none"}}>{cell.icon} {cell.label||cell.text}</span>
-                                {cell.priority && <span style={{background:"#FEF3C7",color:"#92400E",borderRadius:4,padding:"1px 6px",fontSize:11,fontWeight:700}}>{cell.priority}</span>}
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                        <div style={{padding:"8px 14px",borderBottom:"1px solid #F1F5F9"}}>
+                          <div style={{fontSize:11,fontWeight:700,color:"#8B5CF6",marginBottom:4}}>PM</div>
+                          {pmTasks.map(({key, cell}) => (
+                            <div key={key} style={{display:"flex",alignItems:"center",gap:10,padding:"5px 0",opacity:cell.checked?0.45:1}}>
+                              <div onClick={() => compT(key)} style={ck(cell.checked,c.dt,22)}>{cell.checked && <Tk s={13}/>}</div>
+                              <span style={{fontSize:14,flex:1,textDecoration:cell.checked?"line-through":"none"}}>{cell.icon} {cell.label||cell.text}</span>
+                              <button onClick={() => setPmC(prev => ({...prev,[key]:emptyCell()}))} style={{border:"none",background:"transparent",color:"#CBD5E1",fontSize:16,cursor:"pointer",padding:"0 4px"}}>✕</button>
+                            </div>
+                          ))}
+                          {pmTasks.length < PM_R && (
+                            <div style={{position:"relative"}}>
+                              {PRESETS.map((pr2) => (
+                                <button key={pr2.id} onClick={() => {
+                                  const slot = Array.from({length:PM_R},(_,ri)=>ri).find(ri => !(pmC["pm"+ri+"_"+p.id]||{}).presetId);
+                                  if (slot == null) return;
+                                  const key2 = "pm"+slot+"_"+p.id;
+                                  const newCell = {...emptyCell(),presetId:pr2.id,icon:pr2.icon,label:pr2.label,type:pr2.type};
+                                  setPmC(prev => ({...prev,[key2]:newCell}));
+                                }} style={{display:"inline-flex",alignItems:"center",gap:4,margin:"2px",padding:"5px 10px",borderRadius:16,border:"1px solid #E2E8F0",background:"#F8FAFC",fontSize:12,color:"#475569",cursor:"pointer"}}>
+                                  {pr2.icon} {pr2.label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
 
                         {/* Pending confirms */}
                         {pc.length > 0 && (
