@@ -327,7 +327,7 @@ export default function App() {
   const [rlOpen, setRlOpen] = useState({});
   const isMobile = false;
   const [mobileTab, setMobileTab] = useState("todo");
-  const [panel, setPanel] = useState("both");
+  const [panel, setPanel] = useState("schedule");
   const [filterDoctor, setFilterDoctor] = useState("all");
   const [showDrFilter, setShowDrFilter] = useState(false);
   const filteredPats = useMemo(() => filterDoctor === "all" ? sortedPats : sortedPats.filter(p => p.doctor === filterDoctor), [sortedPats, filterDoctor]);
@@ -339,10 +339,21 @@ export default function App() {
   const today = tdL();
 
   const addOrUpdatePat = p => {
+    const isNew = !patients.find(x => x.id === p.id);
     setPatients(pr => { const i = pr.findIndex(x => x.id === p.id); if (i >= 0) { const n = [...pr]; n[i] = p; return n; } return [...pr, p]; });
-    if (!orders[p.id]) setOrders(pr => ({...pr, [p.id]: []}));
-    if (!rLabs[p.id]) setRLabs(pr => ({...pr, [p.id]: {}}));
-    if (!patCats[p.id]) setPatCats(pr => ({...pr, [p.id]: [...DEFAULT_CATS]}));
+    if (isNew) {
+      setOrders(pr => ({...pr, [p.id]: [
+        {id:Date.now()+1, type:"drip_main", name:"", startDate:p.admitDate||today, endDate:p.admitDate||today},
+        {id:Date.now()+2, type:"med", name:"", startDate:p.admitDate||today, endDate:p.admitDate||today},
+        {id:Date.now()+3, type:"lab", name:"血液検査", dates:[]},
+      ]}));
+      setPatCats(pr => ({...pr, [p.id]: [...DEFAULT_CATS]}));
+      setRLabs(pr => ({...pr, [p.id]: {}}));
+    } else {
+      if (!orders[p.id]) setOrders(pr => ({...pr, [p.id]: []}));
+      if (!rLabs[p.id]) setRLabs(pr => ({...pr, [p.id]: {}}));
+      if (!patCats[p.id]) setPatCats(pr => ({...pr, [p.id]: [...DEFAULT_CATS]}));
+    }
     setExpP(pr => ({...pr, [p.id]: true}));
   };
   const dischargePat = pid => {
@@ -739,39 +750,40 @@ export default function App() {
   return (
     <div style={{width:"100%",height:"100vh",display:"flex",flexDirection:"column",fontFamily:"'Noto Sans JP','Hiragino Sans',sans-serif",background:"#F1F5F9",color:"#1E293B"}}>
       {/* Header */}
-      <header style={{display:"flex",alignItems:"center",gap:8,padding:"0 12px",height:48,background:"white",borderBottom:"1px solid #E2E8F0",flexShrink:0}}>
-        <span style={{fontSize:16,width:28,height:28,borderRadius:7,background:"linear-gradient(135deg,#3B82F6,#1D4ED8)",display:"flex",alignItems:"center",justifyContent:"center",color:"white",flexShrink:0}}>🏥</span>
-        <div style={{fontSize:14,fontWeight:800,flexShrink:0}}>病棟管理</div>
-        {/* Panel tabs */}
-        <div style={{display:"flex",gap:3,marginLeft:8}}>
-          {[["schedule","📋 予定表"],["todo","✅ 今日"],["both","両方"]].map(([v,l]) => (
-            <button key={v} onClick={() => setPanel(v)}
-              style={{border:"none",borderRadius:6,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",
-                background:panel===v?"#1E293B":"#F1F5F9",color:panel===v?"white":"#475569"}}>
-              {l}
-            </button>
-          ))}
-        </div>
+      <header style={{display:"flex",alignItems:"center",gap:10,padding:"0 14px",height:48,background:"white",borderBottom:"1px solid #E2E8F0",flexShrink:0}}>
+        <span style={{fontSize:18,width:30,height:30,borderRadius:8,background:"linear-gradient(135deg,#3B82F6,#1D4ED8)",display:"flex",alignItems:"center",justifyContent:"center",color:"white",flexShrink:0}}>🏥</span>
+        <div style={{fontSize:15,fontWeight:800,flexShrink:0}}>病棟管理</div>
+        <div style={{flex:1}}/>
         {/* Doctor filter toggle */}
-        <div style={{position:"relative",marginLeft:4}}>
+        <div style={{position:"relative"}}>
           <button onClick={() => setShowDrFilter(v => !v)}
-            style={{border:"1px solid "+(filterDoctor!=="all"?"#3B82F6":"#E2E8F0"),background:filterDoctor!=="all"?"#EFF6FF":"#F8FAFC",borderRadius:6,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",color:filterDoctor!=="all"?"#3B82F6":"#475569"}}>
-            👨‍⚕️ {filterDoctor==="all"?"主治医":"Dr:"+filterDoctor}
+            style={{border:"1px solid "+(filterDoctor!=="all"?"#3B82F6":"#E2E8F0"),background:filterDoctor!=="all"?"#EFF6FF":"#F8FAFC",borderRadius:20,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer",color:filterDoctor!=="all"?"#1D4ED8":"#64748B",display:"flex",alignItems:"center",gap:4}}>
+            👨‍⚕️ {filterDoctor==="all"?"Dr▾":"Dr:"+filterDoctor+" ▾"}
           </button>
           {showDrFilter && (
-            <div style={{position:"absolute",top:"100%",left:0,zIndex:100,background:"white",border:"1px solid #E2E8F0",borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.12)",padding:6,marginTop:2,minWidth:120}}>
+            <div style={{position:"absolute",top:"110%",right:0,zIndex:200,background:"white",border:"1px solid #E2E8F0",borderRadius:10,boxShadow:"0 8px 24px rgba(0,0,0,0.15)",padding:6,minWidth:140}}>
               {["all",...doctors].map(d => (
                 <button key={d} onClick={() => { setFilterDoctor(d); setShowDrFilter(false); }}
-                  style={{display:"block",width:"100%",textAlign:"left",border:"none",background:filterDoctor===d?"#EFF6FF":"transparent",borderRadius:4,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer",color:filterDoctor===d?"#3B82F6":"#334155"}}>
-                  {d==="all"?"全員（絞り込みなし）":d+" Dr"}
+                  style={{display:"block",width:"100%",textAlign:"left",border:"none",background:filterDoctor===d?"#EFF6FF":"transparent",borderRadius:6,padding:"8px 12px",fontSize:12,fontWeight:700,cursor:"pointer",color:filterDoctor===d?"#1D4ED8":"#334155"}}>
+                  {d==="all"?"👥 全員":d+" Dr"}
                 </button>
               ))}
             </div>
           )}
         </div>
-        <div style={{flex:1}}/>
-        <button onClick={() => setPatModal({})} style={{border:"1px solid #3B82F6",background:"#EFF6FF",borderRadius:6,padding:"5px 12px",fontSize:11,fontWeight:700,color:"#3B82F6",cursor:"pointer",flexShrink:0}}>＋患者</button>
+        <button onClick={() => setPatModal({})} style={{border:"none",background:"#3B82F6",borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:700,color:"white",cursor:"pointer",flexShrink:0}}>＋患者</button>
       </header>
+
+      {/* Tab bar */}
+      <div style={{display:"flex",background:"white",borderBottom:"2px solid #E2E8F0",flexShrink:0}}>
+        {[["schedule","📋","予定表"],["todo","✅","今日"]].map(([v,ic,l]) => (
+          <button key={v} onClick={() => setPanel(v)}
+            style={{flex:1,border:"none",borderBottom:panel===v?"3px solid #3B82F6":"3px solid transparent",background:"transparent",padding:"10px 0 8px",fontSize:12,fontWeight:700,cursor:"pointer",color:panel===v?"#3B82F6":"#94A3B8",display:"flex",flexDirection:"column",alignItems:"center",gap:1,transition:"color 0.15s"}}>
+            <span style={{fontSize:18}}>{ic}</span>
+            <span>{l}</span>
+          </button>
+        ))}
+      </div>
 
       {/* Main panels */}
       <div style={{flex:1,display:"flex",overflow:"hidden",gap:isMobile?0:8,padding:isMobile?0:8}}>
@@ -1074,7 +1086,7 @@ export default function App() {
         {/* ===== DESKTOP LAYOUT ===== */}
         {!isMobile && <>
         {/* LEFT: Schedule */}
-        <div style={{flex:1,display:panel==="todo"?"none":"flex",flexDirection:"column",background:"white",borderRadius:10,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
+        <div style={{flex:1,display:panel==="schedule"?"flex":"none",flexDirection:"column",background:"white",borderRadius:10,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
           <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 14px",borderBottom:"1px solid #E5E7EB",flexShrink:0}}>
             <h2 style={{margin:0,fontSize:13,fontWeight:700}}>📋 週間予定表</h2>
             <div style={{display:"flex",alignItems:"center",gap:4,marginLeft:"auto"}}>
@@ -1116,7 +1128,7 @@ export default function App() {
         </div>
 
         {/* RIGHT: Todo */}
-        <div style={{width:panel==="todo"?"100%":520,flexShrink:0,display:panel==="schedule"?"none":"flex",flexDirection:"column",background:"white",borderRadius:10,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
+        <div style={{flex:1,display:panel==="todo"?"flex":"none",flexDirection:"column",background:"white",borderRadius:10,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
           <div style={{padding:"8px 14px",borderBottom:"1px solid #E5E7EB",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
               <button onClick={() => { const d = new Date(selDate); d.setDate(d.getDate()-1); setSelDate(d); }}
