@@ -701,10 +701,11 @@ export default function App() {
     );
 
     // Category rows
+    const ALWAYS_SHOW_TYPES = ["drip_main","med","lab"];
     if (isE) {
       (patCats[p.id] || DEFAULT_CATS).forEach(cat => {
         const items = po.filter(o => o.type === cat.type);
-        if (items.length === 0) return;
+        if (items.length === 0 && !ALWAYS_SHOW_TYPES.includes(cat.type)) return;
         rows.push(
           <tr key={p.id+"_"+cat.type} style={{background:"#fff"}}>
             <td style={{padding:"2px 4px 2px 22px",borderBottom:"1px solid #F1F5F9",borderRight:"1px solid #E2E8F0",fontSize:8,color:"#475569",verticalAlign:"top"}}>
