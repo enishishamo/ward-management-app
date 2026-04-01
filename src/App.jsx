@@ -704,7 +704,8 @@ export default function App() {
     const ALWAYS_SHOW_TYPES = ["drip_main","med","lab"];
     if (isE) {
       (patCats[p.id] || DEFAULT_CATS).forEach(cat => {
-        const items = po.filter(o => o.type === cat.type);
+        // For bar types, hide unnamed orders (they'd render as invisible bars)
+        const items = po.filter(o => o.type === cat.type && (!cat.isBar || o.name));
         if (items.length === 0 && !ALWAYS_SHOW_TYPES.includes(cat.type)) return;
         rows.push(
           <tr key={p.id+"_"+cat.type} style={{background:"#fff"}}>
@@ -765,14 +766,14 @@ export default function App() {
                         const imgOk = cat.type === "img" && it.reportConfirmed;
                         return (
                           <div key={it.id} onClick={() => togDot(p.id, it.id, ds)}
-                            style={{cursor:"pointer",height:14,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                            style={{cursor:"pointer",height:18,display:"flex",alignItems:"center",justifyContent:"center"}}>
                             {hd2 ? <div style={{width:12,height:12,borderRadius:"50%",background:imgOk?"#22C55E":c.dt,display:"flex",alignItems:"center",justifyContent:"center"}}>
                               {cd && <span style={{fontSize:5,color:"white",fontWeight:800}}>{cd}</span>}
                               {imgOk && <span style={{fontSize:5,color:"white",fontWeight:800}}>✓</span>}
                             </div>
                             : isR ? <div style={{width:12,height:12,borderRadius:"50%",background:"#22C55E",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:6,color:"white",fontWeight:800}}>✓</span></div>
                             : cd ? <div style={{width:10,height:10,borderRadius:"50%",border:"2px dotted "+c.bar,display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:5,color:c.tx,fontWeight:700}}>{cd}</span></div>
-                            : null}
+                            : <div style={{width:8,height:8,borderRadius:"50%",border:"1px dashed #CBD5E1"}}/>}
                           </div>
                         );
                       }
