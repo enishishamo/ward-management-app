@@ -37,8 +37,7 @@ const DEFAULT_CATS = [
   {type:"drip_main",icon:"💉",label:"メイン点滴",isBar:true},
   {type:"med",icon:"💊",label:"内服",isBar:true},
   {type:"lab",icon:"🩸",label:"検査"},
-  {type:"culture_blood",icon:"🧫",label:"培養(血液)",showDay:true},
-  {type:"culture_urine",icon:"🧫",label:"培養(尿)",showDay:true},
+  {type:"culture",icon:"🧫",label:"培養",showDay:true},
   {type:"img",icon:"📷",label:"画像"},
   {type:"meeting",icon:"👥",label:"面談"},
   {type:"consult",icon:"📨",label:"他科依頼"},
@@ -444,6 +443,8 @@ export default function App() {
   const updNm = (pid, oid, n) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => o.id === oid ? {...o, name: n} : o)}));
   const markCulDone = (pid, oid) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => o.id === oid ? {...o, resultDate: today} : o)}));
   const markImgDone = (pid, oid) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => o.id === oid ? {...o, reportConfirmed: true} : o)}));
+  const updGram = (pid, oid, val) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => o.id === oid ? {...o, gramResult: val} : o)}));
+  const addCultureOrd = (pid, specimen) => setOrders(p => ({...p, [pid]: [...(p[pid]||[]), {id:Date.now(), type:"culture", specimen, gramResult:"", dates:[], resultDate:""}]}));
 
   // Sync TODO task → weekly schedule orders
   const syncTaskToOrder = (pid, newCell, oldCell) => {
@@ -649,8 +650,7 @@ export default function App() {
                   <div onClick={e => e.stopPropagation()} style={{position:"absolute",top:"110%",left:0,zIndex:300,background:"white",border:"1px solid #E2E8F0",borderRadius:10,boxShadow:"0 8px 24px rgba(0,0,0,0.15)",padding:6,minWidth:140}}>
                     {[
                       {type:"abx",icon:"🦠",label:"抗菌薬",isBar:true,showDay:true},
-                      {type:"culture_blood",icon:"🧫",label:"培養(血液)",showDay:true},
-                      {type:"culture_urine",icon:"🧫",label:"培養(尿)",showDay:true},
+                      {type:"culture",icon:"🧫",label:"培養",showDay:true},
                       {type:"img",icon:"📷",label:"画像"},
                       {type:"meeting",icon:"👥",label:"面談"},
                       {type:"consult",icon:"📨",label:"他科依頼"},
@@ -749,7 +749,16 @@ export default function App() {
               <div style={{display:"flex",alignItems:"center",gap:2}}>
                 <span style={{fontSize:9}}>{cat.icon}</span>
                 <span style={{fontWeight:700,fontSize:8,color:"#475569"}}>{cat.label}</span>
-                <button onClick={() => addOrd(p.id, cat.type)} style={{border:"none",background:"transparent",color:c.dt,fontSize:8,cursor:"pointer",padding:"0 2px",fontWeight:700,marginLeft:"auto"}}>＋</button>
+                {cat.type === "culture" ? (
+                  <div style={{display:"flex",gap:2,marginLeft:"auto"}}>
+                    {["血液","尿","痰"].map(sp => (
+                      <button key={sp} onClick={() => addCultureOrd(p.id, sp)}
+                        style={{border:"1px solid #E2E8F0",background:"white",borderRadius:4,fontSize:7,padding:"0 4px",cursor:"pointer",color:c.dt,fontWeight:700}}>+{sp}</button>
+                    ))}
+                  </div>
+                ) : (
+                  <button onClick={() => addOrd(p.id, cat.type)} style={{border:"none",background:"transparent",color:c.dt,fontSize:8,cursor:"pointer",padding:"0 2px",fontWeight:700,marginLeft:"auto"}}>＋</button>
+                )}
                 {!isAlways && (
                   <button onClick={() => setPatCats(pr => ({...pr,[p.id]:(pr[p.id]||DEFAULT_CATS).filter(x => x.type !== cat.type)}))}
                     style={{border:"none",background:"transparent",color:"#D1D5DB",fontSize:7,cursor:"pointer",padding:0}}>✕</button>
@@ -762,15 +771,28 @@ export default function App() {
 
         // One row per order item
         items.forEach(it => {
-          const isCul = cat.type?.startsWith("culture");
+          const isCul = cat.type === "culture" || cat.type?.startsWith("culture_");
+          const isNewCul = cat.type === "culture" && it.specimen;
           const isImg = cat.type === "img";
+          const specimenLabel = it.specimen || (cat.type === "culture_blood" ? "血液" : cat.type === "culture_urine" ? "尿" : null);
+          const hasGram = specimenLabel === "尿" || specimenLabel === "痰";
           rows.push(
             <tr key={p.id+"_ord_"+it.id} style={{background:"#fff"}}>
               <td style={{padding:"1px 2px 1px 30px",borderBottom:"1px solid #F1F5F9",borderRight:"1px solid #E2E8F0",verticalAlign:"middle"}}>
-                <div style={{display:"flex",alignItems:"center",gap:2}}>
-                  <input value={it.name} onChange={e => updNm(p.id, it.id, e.target.value)} placeholder="名称を入力" style={{...ip,fontSize:7,fontWeight:500,flex:1,width:"auto",minWidth:30}}/>
-                  {isCul && !it.resultDate && <button onClick={() => markCulDone(p.id, it.id)} style={{border:"none",background:"#FEF3C7",color:"#92400E",borderRadius:2,fontSize:6,fontWeight:700,padding:"0 3px",cursor:"pointer"}}>未</button>}
-                  {isCul && it.resultDate && <span style={{fontSize:6,color:"#22C55E",fontWeight:700}}>✓済</span>}
+                <div style={{display:"flex",alignItems:"center",gap:2,flexWrap:"wrap"}}>
+                  {isCul ? (
+                    <>
+                      <span style={{fontSize:7,fontWeight:700,color:"#475569",flexShrink:0}}>{specimenLabel||"培養"}</span>
+                      {hasGram && (
+                        <input value={it.gramResult||""} onChange={e => updGram(p.id, it.id, e.target.value)}
+                          placeholder="G染色…" style={{...ip,fontSize:7,flex:1,width:"auto",minWidth:36,borderBottom:"1px solid #E2E8F0"}}/>
+                      )}
+                      {!it.resultDate && <button onClick={() => markCulDone(p.id, it.id)} style={{border:"none",background:"#FEF3C7",color:"#92400E",borderRadius:2,fontSize:6,fontWeight:700,padding:"0 3px",cursor:"pointer",flexShrink:0}}>未</button>}
+                      {it.resultDate && <span style={{fontSize:6,color:"#22C55E",fontWeight:700,flexShrink:0}}>✓済</span>}
+                    </>
+                  ) : (
+                    <input value={it.name} onChange={e => updNm(p.id, it.id, e.target.value)} placeholder="名称を入力" style={{...ip,fontSize:7,fontWeight:500,flex:1,width:"auto",minWidth:30}}/>
+                  )}
                   {isImg && !it.reportConfirmed && <button onClick={() => markImgDone(p.id, it.id)} style={{border:"none",background:"#DBEAFE",color:"#1E40AF",borderRadius:2,fontSize:6,fontWeight:700,padding:"0 3px",cursor:"pointer"}}>レポ未</button>}
                   {isImg && it.reportConfirmed && <span style={{fontSize:6,color:"#22C55E",fontWeight:700}}>✓済</span>}
                   <button onClick={() => rmOrd(p.id, it.id)} style={{border:"none",background:"transparent",color:"#D1D5DB",cursor:"pointer",fontSize:7,padding:0}}>✕</button>
