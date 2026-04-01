@@ -41,7 +41,8 @@ const DEFAULT_CATS = [
   {type:"culture_urine",icon:"🧫",label:"培養(尿)",showDay:true},
   {type:"img",icon:"📷",label:"画像"},
   {type:"meeting",icon:"👥",label:"面談"},
-  {type:"consult",icon:"📨",label:"他科依頼"}
+  {type:"consult",icon:"📨",label:"他科依頼"},
+  {type:"family_call",icon:"📞",label:"家族連絡"}
 ];
 const AM = 5, PM_R = 4;
 
@@ -411,6 +412,7 @@ export default function App() {
         {id:Date.now()+1, type:"drip_main", name:"", startDate:p.admitDate||today, endDate:p.admitDate||today},
         {id:Date.now()+2, type:"med", name:"", startDate:p.admitDate||today, endDate:p.admitDate||today},
         {id:Date.now()+3, type:"lab", name:"血液検査", dates:[]},
+        {id:Date.now()+4, type:"family_call", name:"家族連絡", dates:[]},
       ]}));
       setPatCats(pr => ({...pr, [p.id]: [...DEFAULT_CATS]}));
       setRLabs(pr => ({...pr, [p.id]: {}}));
@@ -700,90 +702,98 @@ export default function App() {
       </td></tr>
     );
 
-    // Category rows
-    const ALWAYS_SHOW_TYPES = ["drip_main","med","lab"];
+    // Category rows — each category gets a header row; each order gets its own row
+    const ALWAYS_SHOW_TYPES = ["drip_main","med","lab","family_call"];
     if (isE) {
       (patCats[p.id] || DEFAULT_CATS).forEach(cat => {
-        // For bar types, hide unnamed orders (they'd render as invisible bars)
-        const items = po.filter(o => o.type === cat.type && (!cat.isBar || o.name));
-        if (items.length === 0 && !ALWAYS_SHOW_TYPES.includes(cat.type)) return;
+        const items = po.filter(o => o.type === cat.type);
+        const isAlways = ALWAYS_SHOW_TYPES.includes(cat.type);
+        if (items.length === 0 && !isAlways) return;
+
+        // Category header row (label + add button)
         rows.push(
-          <tr key={p.id+"_"+cat.type} style={{background:"#fff"}}>
-            <td style={{padding:"2px 4px 2px 22px",borderBottom:"1px solid #F1F5F9",borderRight:"1px solid #E2E8F0",fontSize:8,color:"#475569",verticalAlign:"top"}}>
+          <tr key={p.id+"_ch_"+cat.type} style={{background:"#F8FAFC"}}>
+            <td style={{padding:"2px 4px 2px 22px",borderBottom:"1px solid #F1F5F9",borderRight:"1px solid #E2E8F0"}}>
               <div style={{display:"flex",alignItems:"center",gap:2}}>
                 <span style={{fontSize:9}}>{cat.icon}</span>
-                <span style={{fontWeight:700,fontSize:8}}>{cat.label}</span>
-                <button onClick={() => addOrd(p.id, cat.type)} style={{border:"none",background:"transparent",color:c.dt,fontSize:7,cursor:"pointer",padding:0,fontWeight:600,marginLeft:"auto"}}>＋</button>
-                <button onClick={() => setPatCats(pr => ({...pr,[p.id]:(pr[p.id]||DEFAULT_CATS).filter(x => x.type !== cat.type)}))}
-                  style={{border:"none",background:"transparent",color:"#D1D5DB",fontSize:7,cursor:"pointer",padding:0}} title="非表示">✕</button>
+                <span style={{fontWeight:700,fontSize:8,color:"#475569"}}>{cat.label}</span>
+                <button onClick={() => addOrd(p.id, cat.type)} style={{border:"none",background:"transparent",color:c.dt,fontSize:8,cursor:"pointer",padding:"0 2px",fontWeight:700,marginLeft:"auto"}}>＋</button>
+                {!isAlways && (
+                  <button onClick={() => setPatCats(pr => ({...pr,[p.id]:(pr[p.id]||DEFAULT_CATS).filter(x => x.type !== cat.type)}))}
+                    style={{border:"none",background:"transparent",color:"#D1D5DB",fontSize:7,cursor:"pointer",padding:0}}>✕</button>
+                )}
               </div>
-              {items.map(it => {
-                const isCul = cat.type?.startsWith("culture");
-                const isImg = cat.type === "img";
-                return (
-                  <div key={it.id} style={{display:"flex",alignItems:"center",gap:2,paddingLeft:11,lineHeight:1.4}}>
-                    <input value={it.name} onChange={e => updNm(p.id, it.id, e.target.value)} placeholder="名称" style={{...ip,fontSize:7,fontWeight:500,flex:1,width:"auto"}}/>
-                    {isCul && !it.resultDate && <button onClick={() => markCulDone(p.id, it.id)} style={{border:"none",background:"#FEF3C7",color:"#92400E",borderRadius:2,fontSize:6,fontWeight:700,padding:"0 3px",cursor:"pointer"}}>未</button>}
-                    {isCul && it.resultDate && <span style={{fontSize:6,color:"#22C55E",fontWeight:700}}>✓済</span>}
-                    {isImg && !it.reportConfirmed && <button onClick={() => markImgDone(p.id, it.id)} style={{border:"none",background:"#DBEAFE",color:"#1E40AF",borderRadius:2,fontSize:6,fontWeight:700,padding:"0 3px",cursor:"pointer"}}>レポ未</button>}
-                    {isImg && it.reportConfirmed && <span style={{fontSize:6,color:"#22C55E",fontWeight:700}}>✓済</span>}
-                    <button onClick={() => rmOrd(p.id, it.id)} style={{border:"none",background:"transparent",color:"#D1D5DB",cursor:"pointer",fontSize:7,padding:0}}>✕</button>
-                  </div>
-                );
-              })}
             </td>
-            {wk.map((d, di) => {
-              const ds = fD(d), t = isTd(d);
-              return (
-                <td key={di} style={{padding:"1px 0",borderBottom:"1px solid #F1F5F9",borderLeft:"1px solid #F1F5F9",background:t?"#EFF6FF20":"transparent",verticalAlign:"top"}}>
-                  <div style={{display:"flex",flexDirection:"column",gap:1}}>
-                    {items.map(it => {
-                      if (cat.isBar) {
-                        const on = it.startDate && it.endDate && bSp(it.startDate, it.endDate, ds);
-                        const iS = it.startDate === ds, iE = it.endDate === ds;
-                        const dn = on && cat.showDay ? dB(it.startDate, ds) : null;
-                        return (
-                          <div key={it.id} onClick={() => extBar(p.id, it.id, ds)} style={{cursor:"pointer",height:cat.showDay?16:12}}>
-                            {on ? (
-                              <div style={{height:"100%",background:cat.type==="abx"?"#FDE68A":c.bar,margin:"0 -1px",
-                                borderRadius:(iS?"5px ":"0 ")+(iE?"5px ":"0 ")+(iE?"5px ":"0 ")+(iS?"5px":"0"),
-                                borderLeft:iS?"3px solid "+(cat.type==="abx"?"#D97706":c.dt):"none",
-                                borderRight:iE?"3px solid "+(cat.type==="abx"?"#D97706":c.dt):"none",
-                                display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",padding:"0 2px"}}>
-                                {dn && <span style={{fontSize:7,fontWeight:800,color:cat.type==="abx"?"#92400E":c.tx}}>{dn}</span>}
-                              </div>
-                            ) : <div style={{height:"100%"}}/>}
-                          </div>
-                        );
-                      } else {
-                        const hd2 = it.dates?.includes(ds);
-                        let cd = null;
-                        if (cat.showDay && it.dates?.[0]) {
-                          const a = pMD(it.dates[0]), r = it.resultDate ? pMD(it.resultDate) : null, td = pMD(ds);
-                          if (a && td && td >= a && (!r || td <= r)) cd = dB(it.dates[0], ds);
-                        }
-                        const isR = it.resultDate === ds;
-                        const imgOk = cat.type === "img" && it.reportConfirmed;
-                        return (
-                          <div key={it.id} onClick={() => togDot(p.id, it.id, ds)}
-                            style={{cursor:"pointer",height:18,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                            {hd2 ? <div style={{width:12,height:12,borderRadius:"50%",background:imgOk?"#22C55E":c.dt,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                              {cd && <span style={{fontSize:5,color:"white",fontWeight:800}}>{cd}</span>}
-                              {imgOk && <span style={{fontSize:5,color:"white",fontWeight:800}}>✓</span>}
-                            </div>
-                            : isR ? <div style={{width:12,height:12,borderRadius:"50%",background:"#22C55E",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:6,color:"white",fontWeight:800}}>✓</span></div>
-                            : cd ? <div style={{width:10,height:10,borderRadius:"50%",border:"2px dotted "+c.bar,display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:5,color:c.tx,fontWeight:700}}>{cd}</span></div>
-                            : <div style={{width:8,height:8,borderRadius:"50%",border:"1px dashed #CBD5E1"}}/>}
-                          </div>
-                        );
-                      }
-                    })}
-                  </div>
-                </td>
-              );
-            })}
+            {wk.map((_,di) => <td key={di} style={{padding:0,borderBottom:"1px solid #F1F5F9",borderLeft:"1px solid #F1F5F9",background:isTd(wk[di])?"#EFF6FF20":"transparent"}}/>)}
           </tr>
         );
+
+        // One row per order item
+        items.forEach(it => {
+          const isCul = cat.type?.startsWith("culture");
+          const isImg = cat.type === "img";
+          rows.push(
+            <tr key={p.id+"_ord_"+it.id} style={{background:"#fff"}}>
+              <td style={{padding:"1px 2px 1px 30px",borderBottom:"1px solid #F1F5F9",borderRight:"1px solid #E2E8F0",verticalAlign:"middle"}}>
+                <div style={{display:"flex",alignItems:"center",gap:2}}>
+                  <input value={it.name} onChange={e => updNm(p.id, it.id, e.target.value)} placeholder="名称を入力" style={{...ip,fontSize:7,fontWeight:500,flex:1,width:"auto",minWidth:30}}/>
+                  {isCul && !it.resultDate && <button onClick={() => markCulDone(p.id, it.id)} style={{border:"none",background:"#FEF3C7",color:"#92400E",borderRadius:2,fontSize:6,fontWeight:700,padding:"0 3px",cursor:"pointer"}}>未</button>}
+                  {isCul && it.resultDate && <span style={{fontSize:6,color:"#22C55E",fontWeight:700}}>✓済</span>}
+                  {isImg && !it.reportConfirmed && <button onClick={() => markImgDone(p.id, it.id)} style={{border:"none",background:"#DBEAFE",color:"#1E40AF",borderRadius:2,fontSize:6,fontWeight:700,padding:"0 3px",cursor:"pointer"}}>レポ未</button>}
+                  {isImg && it.reportConfirmed && <span style={{fontSize:6,color:"#22C55E",fontWeight:700}}>✓済</span>}
+                  <button onClick={() => rmOrd(p.id, it.id)} style={{border:"none",background:"transparent",color:"#D1D5DB",cursor:"pointer",fontSize:7,padding:0}}>✕</button>
+                </div>
+              </td>
+              {wk.map((d, di) => {
+                const ds = fD(d), t = isTd(d);
+                return (
+                  <td key={di} style={{padding:"1px 0",borderBottom:"1px solid #F1F5F9",borderLeft:"1px solid #F1F5F9",background:t?"#EFF6FF20":"transparent",verticalAlign:"middle"}}>
+                    {cat.isBar ? (() => {
+                      if (!it.name) return <div style={{height:12}}/>;
+                      const on = it.startDate && it.endDate && bSp(it.startDate, it.endDate, ds);
+                      const iS = it.startDate === ds, iE = it.endDate === ds;
+                      const dn = on && cat.showDay ? dB(it.startDate, ds) : null;
+                      return (
+                        <div onClick={() => extBar(p.id, it.id, ds)} style={{cursor:"pointer",height:cat.showDay?16:12}}>
+                          {on ? (
+                            <div style={{height:"100%",background:cat.type==="abx"?"#FDE68A":c.bar,margin:"0 -1px",
+                              borderRadius:(iS?"5px ":"0 ")+(iE?"5px ":"0 ")+(iE?"5px ":"0 ")+(iS?"5px":"0"),
+                              borderLeft:iS?"3px solid "+(cat.type==="abx"?"#D97706":c.dt):"none",
+                              borderRight:iE?"3px solid "+(cat.type==="abx"?"#D97706":c.dt):"none",
+                              display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",padding:"0 2px"}}>
+                              {dn && <span style={{fontSize:7,fontWeight:800,color:cat.type==="abx"?"#92400E":c.tx}}>{dn}</span>}
+                            </div>
+                          ) : <div style={{height:"100%"}}/>}
+                        </div>
+                      );
+                    })() : (() => {
+                      const hd2 = it.dates?.includes(ds);
+                      let cd = null;
+                      if (cat.showDay && it.dates?.[0]) {
+                        const a = pMD(it.dates[0]), r = it.resultDate ? pMD(it.resultDate) : null, td = pMD(ds);
+                        if (a && td && td >= a && (!r || td <= r)) cd = dB(it.dates[0], ds);
+                      }
+                      const isR = it.resultDate === ds;
+                      const imgOk = cat.type === "img" && it.reportConfirmed;
+                      return (
+                        <div onClick={() => togDot(p.id, it.id, ds)}
+                          style={{cursor:"pointer",height:18,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                          {hd2 ? <div style={{width:12,height:12,borderRadius:"50%",background:imgOk?"#22C55E":c.dt,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                            {cd && <span style={{fontSize:5,color:"white",fontWeight:800}}>{cd}</span>}
+                            {imgOk && <span style={{fontSize:5,color:"white",fontWeight:800}}>✓</span>}
+                          </div>
+                          : isR ? <div style={{width:12,height:12,borderRadius:"50%",background:"#22C55E",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:6,color:"white",fontWeight:800}}>✓</span></div>
+                          : cd ? <div style={{width:10,height:10,borderRadius:"50%",border:"2px dotted "+c.bar,display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:5,color:c.tx,fontWeight:700}}>{cd}</span></div>
+                          : <div style={{width:8,height:8,borderRadius:"50%",border:"1px dashed #CBD5E1"}}/>}
+                        </div>
+                      );
+                    })()}
+                  </td>
+                );
+              })}
+            </tr>
+          );
+        });
       });
 
       // Routine labs
