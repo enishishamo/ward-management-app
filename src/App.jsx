@@ -187,9 +187,9 @@ function PatientModal({onSave, onDelete, onClose, edit, doctors, usedColors}) {
             <Lbl>主治医</Lbl>
             <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:6}}>
               {doctors.map(d => <Btn key={d} active={f.doctor===d} onClick={() => sv("doctor",d)}>{d} Dr</Btn>)}
-              <Btn active={false} onClick={() => {}}>
-                <input value={newDr} onChange={e => { setNewDr(e.target.value); sv("doctor",e.target.value); }} placeholder="新規入力..." style={{border:"none",outline:"none",fontSize:12,width:70,fontFamily:"inherit"}}/>
-              </Btn>
+              <div style={{border:"1px solid #E2E8F0",borderRadius:8,padding:"6px 12px",background:"white"}}>
+                <input value={newDr} onChange={e => { setNewDr(e.target.value); sv("doctor",e.target.value); }} placeholder="新規入力..." style={{border:"none",outline:"none",fontSize:12,width:80,fontFamily:"inherit",background:"transparent"}}/>
+              </div>
             </div>
           </div>
           {/* 体重・Cr */}
