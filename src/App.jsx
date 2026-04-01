@@ -1249,8 +1249,8 @@ export default function App() {
           )}
 
           <div style={{flex:1,overflow:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed"}}>
-              <colgroup><col style={{width:28}}/>{filteredPats.map(p => <col key={p.id}/>)}</colgroup>
+            <table style={{borderCollapse:"collapse",tableLayout:"fixed",minWidth:28 + filteredPats.length * 80}}>
+              <colgroup><col style={{width:28}}/>{filteredPats.map(p => <col key={p.id} style={{width:80}}/>)}</colgroup>
               <thead><tr>
                 <th style={{position:"sticky",top:0,zIndex:3,background:"#F8FAFC",borderBottom:"2px solid #E2E8F0"}}/>
                 {filteredPats.map(p => { const cl = COL[p.color]; return (
