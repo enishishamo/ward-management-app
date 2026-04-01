@@ -386,6 +386,7 @@ export default function App() {
   const [rLabs, setRLabs] = useState(() => loadLS("ward_rLabs_v2", {}));
   const [patModal, setPatModal] = useState(null);
   const [catModal, setCatModal] = useState(null);
+  const [showCatMenu, setShowCatMenu] = useState({});
   const [expP, setExpP] = useState({});
   const [showCL, setShowCL] = useState({});
   const [aCL, setACL] = useState({});
@@ -641,8 +642,39 @@ export default function App() {
                 style={{border:"none",background:"#DBEAFE",color:"#1E40AF",borderRadius:3,fontSize:7,fontWeight:700,padding:"1px 4px",cursor:"pointer"}}>入院CL</button>
               <button onClick={() => setShowCL(pr => ({...pr,[p.id+"_d"]:!pr[p.id+"_d"]}))}
                 style={{border:"none",background:"#FEF3C7",color:"#92400E",borderRadius:3,fontSize:7,fontWeight:700,padding:"1px 4px",cursor:"pointer"}}>退院CL</button>
-              <button onClick={() => setCatModal(p.id)}
-                style={{border:"1px dashed #94A3B8",background:"transparent",borderRadius:3,fontSize:7,fontWeight:600,padding:"1px 4px",cursor:"pointer",color:"#64748B"}}>＋大項目</button>
+              <div style={{position:"relative"}}>
+                <button onClick={() => setShowCatMenu(pr => ({...pr,[p.id]:!pr[p.id]}))}
+                  style={{border:"1px dashed #94A3B8",background:"transparent",borderRadius:3,fontSize:7,fontWeight:600,padding:"1px 4px",cursor:"pointer",color:"#64748B"}}>＋追加</button>
+                {showCatMenu[p.id] && (
+                  <div onClick={e => e.stopPropagation()} style={{position:"absolute",top:"110%",left:0,zIndex:300,background:"white",border:"1px solid #E2E8F0",borderRadius:10,boxShadow:"0 8px 24px rgba(0,0,0,0.15)",padding:6,minWidth:140}}>
+                    {[
+                      {type:"abx",icon:"🦠",label:"抗菌薬",isBar:true,showDay:true},
+                      {type:"culture_blood",icon:"🧫",label:"培養(血液)",showDay:true},
+                      {type:"culture_urine",icon:"🧫",label:"培養(尿)",showDay:true},
+                      {type:"img",icon:"📷",label:"画像"},
+                      {type:"meeting",icon:"👥",label:"面談"},
+                      {type:"consult",icon:"📨",label:"他科依頼"},
+                    ].map(cat => (
+                      <button key={cat.type} onClick={() => {
+                        setPatCats(pr => {
+                          const cats = pr[p.id] || [...DEFAULT_CATS];
+                          return cats.find(c => c.type === cat.type) ? pr : {...pr, [p.id]: [...cats, cat]};
+                        });
+                        addOrd(p.id, cat.type);
+                        setShowCatMenu(pr => ({...pr, [p.id]: false}));
+                      }} style={{display:"block",width:"100%",textAlign:"left",border:"none",background:"transparent",borderRadius:6,padding:"6px 10px",fontSize:11,cursor:"pointer",color:"#334155"}}>
+                        {cat.icon} {cat.label}
+                      </button>
+                    ))}
+                    <div style={{borderTop:"1px solid #F1F5F9",marginTop:3,paddingTop:3}}>
+                      <button onClick={() => { setCatModal(p.id); setShowCatMenu(pr => ({...pr,[p.id]:false})); }}
+                        style={{display:"block",width:"100%",textAlign:"left",border:"none",background:"transparent",borderRadius:6,padding:"6px 10px",fontSize:11,cursor:"pointer",color:"#64748B"}}>
+                        ✏️ カスタム追加
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </td>
