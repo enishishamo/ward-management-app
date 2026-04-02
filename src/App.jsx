@@ -409,8 +409,8 @@ export default function App() {
     setPatients(pr => { const i = pr.findIndex(x => x.id === p.id); if (i >= 0) { const n = [...pr]; n[i] = p; return n; } return [...pr, p]; });
     if (isNew) {
       setOrders(pr => ({...pr, [p.id]: [
-        {id:Date.now()+1, type:"drip_main", name:"", startDate:p.admitDate||today, endDate:p.admitDate||today},
-        {id:Date.now()+2, type:"med", name:"", startDate:p.admitDate||today, endDate:p.admitDate||today},
+        {id:Date.now()+1, type:"drip_main", name:"", startDate:null, endDate:null},
+        {id:Date.now()+2, type:"med", name:"", startDate:null, endDate:null},
         {id:Date.now()+3, type:"lab", name:"血液検査", dates:[]},
         {id:Date.now()+4, type:"family_call", name:"家族連絡", dates:[]},
       ]}));
@@ -436,7 +436,14 @@ export default function App() {
     setRLabs(pr => { const n = {...pr}; delete n[pid]; return n; });
     setTaskDB(pr => { const n = {}; Object.keys(pr).forEach(d => { const day = {...pr[d]}; delete day[pid]; n[d] = day; }); return n; });
   };
-  const extBar = (pid, oid, ds) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => o.id === oid ? {...o, endDate: ds} : o)}));
+  const extBar = (pid, oid, ds) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => {
+    if (o.id !== oid) return o;
+    if (!o.startDate) return {...o, startDate: ds, endDate: ds}; // 未配置→クリック日に配置
+    const s = pMD(o.startDate), d = pMD(ds);
+    if (!s || !d) return {...o, startDate: ds, endDate: ds};
+    if (d < s) return {...o, startDate: ds}; // 開始日より前→開始日を移動
+    return {...o, endDate: ds}; // 開始日以降→終了日を延長/短縮
+  })}));
   const togDot = (pid, oid, ds) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => { if (o.id !== oid) return o; const d = o.dates||[]; return {...o, dates: d.includes(ds) ? d.filter(x => x !== ds) : [...d, ds].sort()}; })}));
   const addOrd = (pid, type) => { const bar = ["drip_main","med","abx"].includes(type); setOrders(p => ({...p, [pid]: [...(p[pid]||[]), {id:Date.now(),type,name:"",dates:bar?undefined:[],startDate:bar?today:undefined,endDate:bar?today:undefined,...(type.startsWith("culture")?{resultDate:""}:{})}]})); };
   const rmOrd = (pid, oid) => setOrders(p => ({...p, [pid]: (p[pid]||[]).filter(o => o.id !== oid)}));
@@ -817,7 +824,7 @@ export default function App() {
                               display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",padding:"0 2px"}}>
                               {dn && <span style={{fontSize:7,fontWeight:800,color:cat.type==="abx"?"#92400E":c.tx}}>{dn}</span>}
                             </div>
-                          ) : <div style={{height:"100%"}}/>}
+                          ) : <div style={{height:"100%",borderBottom:"1px dashed #E2E8F0"}}/>}
                         </div>
                       );
                     })() : (() => {
