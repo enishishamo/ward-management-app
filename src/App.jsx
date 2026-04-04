@@ -34,8 +34,8 @@ const ADMIT_CL = ["同意書(DNAR)","同意書(身体拘束)","同意書(その�
 const DISCH_CL = ["退院決定","退院計画書","退院時処方","外来F/U","情報診療提供書","退院サマリ"];
 const DEFAULT_CATS = [
   {type:"abx",icon:"🦠",label:"抗菌薬",isBar:true,showDay:true},
-  {type:"drip_main",icon:"💉",label:"メイン点滴",isBar:true},
-  {type:"med",icon:"💊",label:"内服",isBar:true},
+  {type:"drip_main",icon:"💉",label:"メイン点滴"},
+  {type:"med",icon:"💊",label:"内服"},
   {type:"lab",icon:"🩸",label:"検査"},
   {type:"culture",icon:"🧫",label:"培養",showDay:true},
   {type:"img",icon:"📷",label:"画像"},
@@ -407,6 +407,7 @@ export default function App() {
   useEffect(() => { saveLS("ward_orders_v2", orders); }, [orders]);
   useEffect(() => { saveLS("ward_patCats_v2", patCats); }, [patCats]);
   useEffect(() => { saveLS("ward_rLabs_v2", rLabs); }, [rLabs]);
+  useEffect(() => { saveLS("ward_consults_v2", consults); }, [consults]);
   const today = tdL();
 
   const addOrUpdatePat = p => {
@@ -414,8 +415,8 @@ export default function App() {
     setPatients(pr => { const i = pr.findIndex(x => x.id === p.id); if (i >= 0) { const n = [...pr]; n[i] = p; return n; } return [...pr, p]; });
     if (isNew) {
       setOrders(pr => ({...pr, [p.id]: [
-        {id:Date.now()+1, type:"drip_main", name:"", startDate:null, endDate:null},
-        {id:Date.now()+2, type:"med", name:"", startDate:null, endDate:null},
+        {id:Date.now()+1, type:"drip_main", name:"", dates:[]},
+        {id:Date.now()+2, type:"med", name:"", dates:[]},
         {id:Date.now()+3, type:"lab", name:"血液検査", dates:[]},
         {id:Date.now()+4, type:"family_call", name:"家族連絡", dates:[]},
       ]}));
@@ -566,7 +567,7 @@ export default function App() {
     return pc;
   }, [orders, sortedPats, selDateStr]);
 
-  const [consults, setConsults] = useState(() => { const c = {}; iPats.forEach(p => { c[p.id] = [{id:1,text:"",checked:false,urgent:false},{id:2,text:"",checked:false,urgent:false}]; }); return c; });
+  const [consults, setConsults] = useState(() => loadLS("ward_consults_v2", {}));
   const [studyList, setStudyList] = useState([{id:1,text:"",checked:false},{id:2,text:"",checked:false}]);
   const allC = useMemo(() => ({...amC,...pmC}), [amC, pmC]);
 
@@ -924,8 +925,8 @@ export default function App() {
         <button onClick={() => setPatModal({})} style={{border:"none",background:"#3B82F6",borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:700,color:"white",cursor:"pointer",flexShrink:0}}>＋患者</button>
       </header>
 
-      {/* Tab bar */}
-      <div style={{display:"flex",background:"white",borderBottom:"2px solid #E2E8F0",flexShrink:0}}>
+      {/* Tab bar (desktop only) */}
+      {!isMobile && <div style={{display:"flex",background:"white",borderBottom:"2px solid #E2E8F0",flexShrink:0}}>
         {[["schedule","📋","予定表"],["todo","✅","今日"]].map(([v,ic,l]) => (
           <button key={v} onClick={() => setPanel(v)}
             style={{flex:1,border:"none",borderBottom:panel===v?"3px solid #3B82F6":"3px solid transparent",background:"transparent",padding:"10px 0 8px",fontSize:12,fontWeight:700,cursor:"pointer",color:panel===v?"#3B82F6":"#94A3B8",display:"flex",flexDirection:"column",alignItems:"center",gap:1,transition:"color 0.15s"}}>
@@ -933,7 +934,7 @@ export default function App() {
             <span>{l}</span>
           </button>
         ))}
-      </div>
+      </div>}
 
       {/* Main panels */}
       <div style={{flex:1,display:"flex",overflow:"hidden",gap:isMobile?0:8,padding:isMobile?0:8}}>
@@ -1056,7 +1057,11 @@ export default function App() {
                           {amTasks.map(({key, cell}) => (
                             <div key={key} style={{display:"flex",alignItems:"center",gap:10,padding:"5px 0",opacity:cell.checked?0.45:1}}>
                               <div onClick={() => compT(key)} style={ck(cell.checked,c.dt,22)}>{cell.checked && <Tk s={13}/>}</div>
-                              <span style={{fontSize:14,flex:1,textDecoration:cell.checked?"line-through":"none"}}>{cell.icon} {cell.label||cell.text}</span>
+                              {cell.type === "free"
+                                ? <input value={cell.text||""} onChange={e => setAmC(prev => ({...prev,[key]:{...prev[key]||emptyCell(),text:e.target.value}}))}
+                                    placeholder="メモ..." style={{fontSize:14,flex:1,border:"none",outline:"none",background:"transparent",fontFamily:"inherit",textDecoration:cell.checked?"line-through":"none"}}/>
+                                : <span style={{fontSize:14,flex:1,textDecoration:cell.checked?"line-through":"none"}}>{cell.icon} {cell.label||cell.text}</span>
+                              }
                               <button onClick={() => setAmC(prev => ({...prev,[key]:emptyCell()}))} style={{border:"none",background:"transparent",color:"#CBD5E1",fontSize:16,cursor:"pointer",padding:"0 4px"}}>✕</button>
                             </div>
                           ))}
@@ -1084,7 +1089,11 @@ export default function App() {
                           {pmTasks.map(({key, cell}) => (
                             <div key={key} style={{display:"flex",alignItems:"center",gap:10,padding:"5px 0",opacity:cell.checked?0.45:1}}>
                               <div onClick={() => compT(key)} style={ck(cell.checked,c.dt,22)}>{cell.checked && <Tk s={13}/>}</div>
-                              <span style={{fontSize:14,flex:1,textDecoration:cell.checked?"line-through":"none"}}>{cell.icon} {cell.label||cell.text}</span>
+                              {cell.type === "free"
+                                ? <input value={cell.text||""} onChange={e => setPmC(prev => ({...prev,[key]:{...prev[key]||emptyCell(),text:e.target.value}}))}
+                                    placeholder="メモ..." style={{fontSize:14,flex:1,border:"none",outline:"none",background:"transparent",fontFamily:"inherit",textDecoration:cell.checked?"line-through":"none"}}/>
+                                : <span style={{fontSize:14,flex:1,textDecoration:cell.checked?"line-through":"none"}}>{cell.icon} {cell.label||cell.text}</span>
+                              }
                               <button onClick={() => setPmC(prev => ({...prev,[key]:emptyCell()}))} style={{border:"none",background:"transparent",color:"#CBD5E1",fontSize:16,cursor:"pointer",padding:"0 4px"}}>✕</button>
                             </div>
                           ))}
@@ -1123,16 +1132,19 @@ export default function App() {
                         {/* Order checklist */}
                         {(() => {
                           const po = orders[p.id]||[], sd = pMD(selDateStr);
-                          const notExp = o => { if (!o.endDate) return true; const ed = pMD(o.endDate); return ed && sd && ed >= sd; };
-                          const drips = po.filter(o => o.type === "drip_main" && o.name && notExp(o));
-                          const meds = po.filter(o => (o.type === "med" || o.type === "abx") && o.name && notExp(o));
+                          const onToday2 = o => o.dates?.some(d => d === selDateStr);
+                          const notExpAbx2 = o => { if (!o.endDate) return true; const ed = pMD(o.endDate); return ed && sd && ed >= sd; };
+                          const drips = po.filter(o => o.type === "drip_main" && o.name && onToday2(o));
+                          const meds = po.filter(o => o.type === "med" && o.name && onToday2(o));
+                          const abxs = po.filter(o => o.type === "abx" && o.name && notExpAbx2(o));
                           const labs = po.filter(o => o.type === "lab" && o.dates?.some(d => { const dd = pMD(d); return dd && sd && dd >= sd; }));
-                          if (drips.length === 0 && meds.length === 0 && labs.length === 0) return null;
+                          if (drips.length === 0 && meds.length === 0 && abxs.length === 0 && labs.length === 0) return null;
                           return (
                             <div style={{padding:"8px 14px",borderBottom:"1px solid #F1F5F9",background:"#FFFBEB"}}>
                               <div style={{fontSize:11,fontWeight:700,color:"#92400E",marginBottom:4}}>📋 オーダー確認</div>
-                              {drips.map(o => <div key={o.id} style={{fontSize:13,color:"#334155",marginBottom:2}}>💉 {o.name} <span style={{color:"#C2410C",fontWeight:700}}>〜{addDw(o.endDate)}</span></div>)}
-                              {meds.map(o => <div key={o.id} style={{fontSize:13,color:"#334155",marginBottom:2}}>{o.type==="abx"?"🦠":"💊"} {o.name} <span style={{color:"#C2410C",fontWeight:700}}>〜{addDw(o.endDate)}</span></div>)}
+                              {drips.map(o => <div key={o.id} style={{fontSize:13,color:"#334155",marginBottom:2}}>💉 {o.name}</div>)}
+                              {meds.map(o => <div key={o.id} style={{fontSize:13,color:"#334155",marginBottom:2}}>💊 {o.name}</div>)}
+                              {abxs.map(o => <div key={o.id} style={{fontSize:13,color:"#334155",marginBottom:2}}>🦠 {o.name} <span style={{color:"#C2410C",fontWeight:700}}>〜{addDw(o.endDate)}</span></div>)}
                               {labs.map(o => <div key={o.id} style={{fontSize:13,color:"#334155",marginBottom:2}}>🩸 {o.name} <span style={{color:"#0369A1",fontWeight:700}}>{(o.dates||[]).filter(d => { const dd = pMD(d); return dd && sd && dd >= sd; }).map(d => addDw(d)).join(", ")}</span></div>)}
                             </div>
                           );
@@ -1165,16 +1177,16 @@ export default function App() {
                         <div style={{fontSize:11,fontWeight:700,color:cl.tx,marginBottom:4}}>{p.name.split(" ")[0]}</div>
                         {its.map(it => (
                           <div key={it.id} style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                            <div onClick={() => setConsults(pr => ({...pr,[p.id]:pr[p.id].map(x => x.id===it.id?{...x,checked:!x.checked}:x)}))} style={ck(it.checked,cl.dt,20)}>{it.checked && <Tk s={12}/>}</div>
-                            <div onClick={() => setConsults(pr => ({...pr,[p.id]:pr[p.id].map(x => x.id===it.id?{...x,urgent:!x.urgent}:x)}))}
+                            <div onClick={() => setConsults(pr => ({...pr,[p.id]:(pr[p.id]||[]).map(x => x.id===it.id?{...x,checked:!x.checked}:x)}))} style={ck(it.checked,cl.dt,20)}>{it.checked && <Tk s={12}/>}</div>
+                            <div onClick={() => setConsults(pr => ({...pr,[p.id]:(pr[p.id]||[]).map(x => x.id===it.id?{...x,urgent:!x.urgent}:x)}))}
                               style={{width:18,height:18,borderRadius:"50%",border:it.urgent?"2px solid #DC2626":"2px solid #E2E8F0",background:it.urgent?"#DC2626":"white",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:"white",fontWeight:800,flexShrink:0}}>
                               {it.urgent && "!"}
                             </div>
-                            <input value={it.text} onChange={e => setConsults(pr => ({...pr,[p.id]:pr[p.id].map(x => x.id===it.id?{...x,text:e.target.value}:x)}))}
+                            <input value={it.text} onChange={e => setConsults(pr => ({...pr,[p.id]:(pr[p.id]||[]).map(x => x.id===it.id?{...x,text:e.target.value}:x)}))}
                               placeholder="相談事項..." style={{...ip,fontSize:14,flex:1,width:"auto"}}/>
                           </div>
                         ))}
-                        <button onClick={() => setConsults(pr => ({...pr,[p.id]:[...pr[p.id],{id:Date.now(),text:"",checked:false,urgent:false}]}))}
+                        <button onClick={() => setConsults(pr => ({...pr,[p.id]:[...(pr[p.id]||[]),{id:Date.now(),text:"",checked:false,urgent:false}]}))}
                           style={{border:"none",background:"transparent",color:cl.dt,fontSize:12,cursor:"pointer",padding:0,fontWeight:700}}>＋追加</button>
                       </div>
                     ); })}
@@ -1211,8 +1223,8 @@ export default function App() {
                             {p.lastFamilyCall && <div>最終TEL: <b style={{color:"#0369A1"}}>{p.lastFamilyCall}</b></div>}
                             {po.length > 0 && (
                               <div style={{marginTop:4,paddingTop:6,borderTop:"1px solid #E2E8F0"}}>
-                                {po.filter(o => o.type==="abx"||o.type==="drip_main"||o.type==="med").filter(o=>{const ed=pMD(o.endDate);return!ed||ed>=pMD(today);}).map(o => (
-                                  <div key={o.id} style={{fontSize:11}}>{o.type==="abx"?"🦠":o.type==="drip_main"?"💉":"💊"} {o.name} <b style={{color:"#C2410C"}}>〜{o.endDate}</b></div>
+                                {po.filter(o => o.type==="abx"||o.type==="drip_main"||o.type==="med").filter(o=>{if(o.type==="abx"){const ed=pMD(o.endDate);return!ed||ed>=pMD(today);}return(o.dates||[]).length>0;}).map(o => (
+                                  <div key={o.id} style={{fontSize:11}}>{o.type==="abx"?"🦠":o.type==="drip_main"?"💉":"💊"} {o.name} {o.type==="abx"&&o.endDate&&<b style={{color:"#C2410C"}}>〜{o.endDate}</b>}</div>
                                 ))}
                               </div>
                             )}
@@ -1407,14 +1419,17 @@ export default function App() {
                   <td style={{padding:"2px",textAlign:"center",borderTop:"2px solid #FED7AA",borderBottom:"2px solid #FED7AA",borderRight:"1px solid #E2E8F0",background:"#FFF7ED"}}><span style={{fontSize:9}}>📋</span></td>
                   {filteredPats.map(p => {
                     const po = orders[p.id]||[], sd = pMD(selDateStr);
-                    const notExp = o => { if (!o.endDate) return true; const ed = pMD(o.endDate); return ed && sd && ed >= sd; };
-                    const drips = po.filter(o => o.type === "drip_main" && notExp(o));
-                    const meds = po.filter(o => (o.type === "med" || o.type === "abx") && notExp(o));
+                    const onToday = o => o.dates?.some(d => d === selDateStr);
+                    const notExpAbx = o => { if (!o.endDate) return true; const ed = pMD(o.endDate); return ed && sd && ed >= sd; };
+                    const drips = po.filter(o => o.type === "drip_main" && o.name && onToday(o));
+                    const meds = po.filter(o => o.type === "med" && o.name && onToday(o));
+                    const abxs = po.filter(o => o.type === "abx" && o.name && notExpAbx(o));
                     const labs = po.filter(o => o.type === "lab" && o.dates?.some(d => { const dd = pMD(d); return dd && sd && dd >= sd; }));
                     return (
                       <td key={p.id} style={{padding:"2px 3px",borderTop:"2px solid #FED7AA",borderBottom:"2px solid #FED7AA",borderLeft:"1px solid #F1F5F9",verticalAlign:"top",fontSize:7,color:"#64748B"}}>
-                        {drips.map(o => <div key={o.id}>💉{o.name} <b style={{color:"#C2410C"}}>〜{addDw(o.endDate)}</b></div>)}
-                        {meds.map(o => <div key={o.id}>{o.type==="abx"?"🦠":"💊"}{o.name} <b style={{color:"#C2410C"}}>〜{addDw(o.endDate)}</b></div>)}
+                        {drips.map(o => <div key={o.id}>💉{o.name}</div>)}
+                        {meds.map(o => <div key={o.id}>💊{o.name}</div>)}
+                        {abxs.map(o => <div key={o.id}>🦠{o.name} <b style={{color:"#C2410C"}}>〜{addDw(o.endDate)}</b></div>)}
                         {labs.map(o => <div key={o.id}>🩸{o.name} <b style={{color:"#0369A1"}}>{(o.dates||[]).filter(d => { const dd = pMD(d); return dd && sd && dd >= sd; }).map(d => addDw(d)).join(",")}</b></div>)}
                         {drips.length === 0 && meds.length === 0 && labs.length === 0 && <span style={{color:"#E2E8F0"}}>—</span>}
                       </td>
@@ -1453,16 +1468,16 @@ export default function App() {
                     <td style={{padding:"3px 6px",verticalAlign:"top"}}>
                       {its.map(it => (
                         <div key={it.id} style={{display:"flex",alignItems:"center",gap:3,marginBottom:2}}>
-                          <div onClick={() => setConsults(pr => ({...pr,[p.id]:pr[p.id].map(x => x.id===it.id?{...x,checked:!x.checked}:x)}))} style={ck(it.checked,cl.dt)}>{it.checked && <Tk/>}</div>
-                          <div onClick={() => setConsults(pr => ({...pr,[p.id]:pr[p.id].map(x => x.id===it.id?{...x,urgent:!x.urgent}:x)}))}
+                          <div onClick={() => setConsults(pr => ({...pr,[p.id]:(pr[p.id]||[]).map(x => x.id===it.id?{...x,checked:!x.checked}:x)}))} style={ck(it.checked,cl.dt)}>{it.checked && <Tk/>}</div>
+                          <div onClick={() => setConsults(pr => ({...pr,[p.id]:(pr[p.id]||[]).map(x => x.id===it.id?{...x,urgent:!x.urgent}:x)}))}
                             style={{width:13,height:13,borderRadius:"50%",border:it.urgent?"2px solid #DC2626":"2px solid #E2E8F0",background:it.urgent?"#DC2626":"white",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:6,color:"white",fontWeight:800}}>
                             {it.urgent && "!"}
                           </div>
-                          <input value={it.text} onChange={e => setConsults(pr => ({...pr,[p.id]:pr[p.id].map(x => x.id===it.id?{...x,text:e.target.value}:x)}))} placeholder="相談事項..."
+                          <input value={it.text} onChange={e => setConsults(pr => ({...pr,[p.id]:(pr[p.id]||[]).map(x => x.id===it.id?{...x,text:e.target.value}:x)}))} placeholder="相談事項..."
                             style={{...ip,fontSize:10,flex:1,textDecoration:it.checked?"line-through":"none",opacity:it.checked?0.4:1,width:"auto"}}/>
                         </div>
                       ))}
-                      <button onClick={() => setConsults(pr => ({...pr,[p.id]:[...pr[p.id],{id:Date.now(),text:"",checked:false,urgent:false}]}))}
+                      <button onClick={() => setConsults(pr => ({...pr,[p.id]:[...(pr[p.id]||[]),{id:Date.now(),text:"",checked:false,urgent:false}]}))}
                         style={{border:"none",background:"transparent",color:cl.dt,fontSize:8,cursor:"pointer",padding:0,fontWeight:600}}>＋</button>
                     </td>
                   </tr>
