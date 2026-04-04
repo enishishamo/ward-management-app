@@ -15,9 +15,9 @@ const PRESETS = [
   {id:"lab",icon:"🩸",label:"血液検査確認",type:"lab"},
   {id:"img",icon:"📷",label:"画像検査確認",type:"imaging"},
   {id:"culture",icon:"🧫",label:"培養確認",type:"culture"},
-  {id:"rehab_call",icon:"🏃",label:"リハさんに電話"},
-  {id:"msw_call",icon:"👩‍⚕️",label:"MSWに電話"},
-  {id:"family_call",icon:"📞",label:"家族に電話"},
+  {id:"rehab_call",icon:"🏃",label:"リハさんに電話",type:"rehab_call"},
+  {id:"msw_call",icon:"👩‍⚕️",label:"MSWに電話",type:"msw_call"},
+  {id:"family_call",icon:"📞",label:"家族に電話",type:"family_call"},
   {id:"meds",icon:"💊",label:"投薬確認"},
   {id:"free",icon:"✏️",label:"自由記載",type:"free"}
 ];
@@ -41,7 +41,9 @@ const DEFAULT_CATS = [
   {type:"img",icon:"📷",label:"画像"},
   {type:"meeting",icon:"👥",label:"面談"},
   {type:"consult",icon:"📨",label:"他科依頼"},
-  {type:"family_call",icon:"📞",label:"家族連絡"}
+  {type:"family_call",icon:"📞",label:"家族連絡"},
+  {type:"rehab_call",icon:"🏃",label:"リハ連絡"},
+  {type:"msw_call",icon:"👩‍⚕️",label:"MSW連絡"}
 ];
 const AM = 5, PM_R = 4;
 
@@ -106,6 +108,12 @@ function mkAutoTasks(today, orders, patients) {
         a.push({presetId:"med_expire",icon:"💊",label:(o.type==="abx"?"抗菌薬":"内服")+"切れ: "+o.name,auto:true});
       if (o.type === "lab" && o.dates?.includes(today))
         a.push({presetId:"lab",icon:"🩸",label:"検査: "+o.name,type:"lab",auto:true});
+      if (o.type === "family_call" && o.dates?.includes(today))
+        a.push({presetId:"family_call",icon:"📞",label:"家族に電話"+(o.name?" ("+o.name+")":""),type:"family_call",auto:true});
+      if (o.type === "rehab_call" && o.dates?.includes(today))
+        a.push({presetId:"rehab_call",icon:"🏃",label:"リハさんに電話"+(o.name?" ("+o.name+")":""),type:"rehab_call",auto:true});
+      if (o.type === "msw_call" && o.dates?.includes(today))
+        a.push({presetId:"msw_call",icon:"👩‍⚕️",label:"MSWに電話"+(o.name?" ("+o.name+")":""),type:"msw_call",auto:true});
     });
     t[p.id] = a;
   });
@@ -520,7 +528,7 @@ export default function App() {
 
   // Sync TODO task → weekly schedule orders
   const syncTaskToOrder = (pid, newCell, oldCell) => {
-    const orderTypeMap = { lab: "lab", imaging: "img", culture: "culture_blood" };
+    const orderTypeMap = { lab: "lab", imaging: "img", culture: "culture_blood", family_call: "family_call", rehab_call: "rehab_call", msw_call: "msw_call" };
     const newOrdType = (newCell.presetId && !newCell.auto) ? orderTypeMap[newCell.type] : null;
     const oldOrdType = (oldCell?.presetId && !oldCell?.auto) ? orderTypeMap[oldCell.type] : null;
     if (newOrdType === oldOrdType) return;
@@ -1283,40 +1291,47 @@ export default function App() {
                 </div>
               )}
 
-              {/* Tab: 患者一覧 */}
+              {/* Tab: 患者情報 */}
               {mobileTab === "patients" && (
                 <div style={{padding:10,paddingBottom:72}}>
+                  {/* Add patient button */}
+                  <button onClick={() => setPatModal({edit:null})}
+                    style={{width:"100%",border:"2px dashed #93C5FD",background:"#EFF6FF",borderRadius:12,padding:"12px",fontSize:14,fontWeight:700,color:"#2563EB",cursor:"pointer",marginBottom:10}}>
+                    ＋ 新規患者を追加
+                  </button>
                   {filteredPats.map(p => {
-                    const c = COL[p.color], po = orders[p.id]||[], isE = expP[p.id];
+                    const c = COL[p.color], isE = expP[p.id];
                     const cv = cCr(p.age, p.weight, p.cr, p.sex === "F");
+                    const dayNum = p.admissionDate ? dB(p.admissionDate, today) : (p.admitDate ? dB(p.admitDate, today) : null);
                     return (
                       <div key={p.id} style={{background:"white",borderRadius:14,marginBottom:10,border:"2px solid "+c.bd,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}}>
                         <div style={{display:"flex",alignItems:"center",padding:"10px 14px",background:c.bg+"80",cursor:"pointer"}} onClick={() => setExpP(pr => ({...pr,[p.id]:!pr[p.id]}))}>
                           <Ch open={isE}/>
                           <span style={{width:8,height:8,borderRadius:"50%",background:c.dt,margin:"0 8px"}}/>
                           <div style={{flex:1}}>
-                            <div style={{fontSize:15,fontWeight:800,color:c.tx}}>{p.name}</div>
-                            <div style={{fontSize:11,color:"#64748B"}}>{p.room} {p.doctor && "· "+p.doctor+"Dr"} · {p.diagnosis}</div>
+                            <div style={{display:"flex",alignItems:"baseline",gap:6}}>
+                              <span style={{fontSize:15,fontWeight:800,color:c.tx}}>{p.name}</span>
+                              {dayNum != null && <span style={{fontSize:10,color:"#94A3B8"}}>入院{dayNum}日目</span>}
+                            </div>
+                            <div style={{fontSize:11,color:"#64748B"}}>{p.room}{p.doctor && " · "+p.doctor+"Dr"} · {p.diagnosis}</div>
                           </div>
                           <div style={{display:"flex",gap:4}}>
                             <button onClick={e=>{e.stopPropagation();setPatModal({edit:p});}} style={{border:"none",background:"transparent",color:"#94A3B8",fontSize:14,cursor:"pointer",padding:4}}>✎</button>
-                            <button onClick={e=>{e.stopPropagation();if(window.confirm(p.name+"さんを退院にしますか？"))dischargePat(p.id);}}
-                              style={{border:"none",background:"transparent",color:"#F87171",fontSize:12,cursor:"pointer",padding:4}}>退院</button>
+                            <button onClick={e=>{e.stopPropagation();dischargePat(p.id);}}
+                              style={{border:"none",background:"#FEE2E2",color:"#EF4444",fontSize:11,fontWeight:700,borderRadius:6,padding:"2px 8px",cursor:"pointer"}}>退院</button>
                           </div>
                         </div>
                         {isE && (
-                          <div style={{padding:"10px 14px",fontSize:12,color:"#475569",display:"flex",flexDirection:"column",gap:4}}>
-                            <div>年齢: {p.age}{p.sex==="F"?"♀":"♂"} | 入院: {p.admitDate}{p.dischargePlan && " → 退院予定: "+p.dischargePlan}</div>
-                            <div>CCr: <b style={{color:cv&&cv<30?"#DC2626":"#334155"}}>{cv||"—"}</b> | Wt: {p.weight}kg | Cr: {p.cr}</div>
-                            {p.family && <div>家族: {p.family} | 介護: {p.careLevel}</div>}
-                            {p.lastFamilyCall && <div>最終TEL: <b style={{color:"#0369A1"}}>{p.lastFamilyCall}</b></div>}
-                            {po.length > 0 && (
-                              <div style={{marginTop:4,paddingTop:6,borderTop:"1px solid #E2E8F0"}}>
-                                {po.filter(o => o.type==="abx"||o.type==="drip_main"||o.type==="med").filter(o=>{if(o.type==="abx"){const ed=pMD(o.endDate);return!ed||ed>=pMD(today);}return(o.dates||[]).length>0;}).map(o => (
-                                  <div key={o.id} style={{fontSize:11}}>{o.type==="abx"?"🦠":o.type==="drip_main"?"💉":"💊"} {o.name} {o.type==="abx"&&o.endDate&&<b style={{color:"#C2410C"}}>〜{o.endDate}</b>}</div>
-                                ))}
-                              </div>
-                            )}
+                          <div style={{padding:"10px 14px",fontSize:12,color:"#475569",display:"flex",flexDirection:"column",gap:6}}>
+                            <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+                              <span>{p.age}歳 {p.sex==="F"?"♀":"♂"}</span>
+                              {p.weight && <span>体重 {p.weight}kg</span>}
+                              {p.cr && <span>Cr {p.cr}</span>}
+                              {cv != null && <span style={{fontWeight:700,color:cv<30?"#DC2626":cv<60?"#D97706":"#166534"}}>CCr {cv}</span>}
+                            </div>
+                            {p.admitDate && <div style={{color:"#64748B"}}>入院: {p.admitDate}{p.dischargePlan && <span style={{color:"#7C3AED",fontWeight:700}}> → 退院予定: {p.dischargePlan}</span>}</div>}
+                            {p.family && <div>🏠 家族形態: {p.family}{p.careLevel && p.careLevel !== "なし" && <span style={{marginLeft:6,color:"#9333EA"}}>介護{p.careLevel}</span>}</div>}
+                            {p.lastFamilyCall && <div style={{color:"#0369A1",fontWeight:600}}>📞 最終家族TEL: {p.lastFamilyCall}</div>}
                           </div>
                         )}
                       </div>
