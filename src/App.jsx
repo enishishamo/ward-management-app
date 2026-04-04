@@ -1288,57 +1288,9 @@ export default function App() {
                       </div>
                     ); })}
                   </div>
-                </div>
-              )}
 
-              {/* Tab: 患者情報 */}
-              {mobileTab === "patients" && (
-                <div style={{padding:10,paddingBottom:72}}>
-                  {/* Add patient button */}
-                  <button onClick={() => setPatModal({edit:null})}
-                    style={{width:"100%",border:"2px dashed #93C5FD",background:"#EFF6FF",borderRadius:12,padding:"12px",fontSize:14,fontWeight:700,color:"#2563EB",cursor:"pointer",marginBottom:10}}>
-                    ＋ 新規患者を追加
-                  </button>
-                  {filteredPats.map(p => {
-                    const c = COL[p.color], isE = expP[p.id];
-                    const cv = cCr(p.age, p.weight, p.cr, p.sex === "F");
-                    const dayNum = p.admissionDate ? dB(p.admissionDate, today) : (p.admitDate ? dB(p.admitDate, today) : null);
-                    return (
-                      <div key={p.id} style={{background:"white",borderRadius:14,marginBottom:10,border:"2px solid "+c.bd,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}}>
-                        <div style={{display:"flex",alignItems:"center",padding:"10px 14px",background:c.bg+"80",cursor:"pointer"}} onClick={() => setExpP(pr => ({...pr,[p.id]:!pr[p.id]}))}>
-                          <Ch open={isE}/>
-                          <span style={{width:8,height:8,borderRadius:"50%",background:c.dt,margin:"0 8px"}}/>
-                          <div style={{flex:1}}>
-                            <div style={{display:"flex",alignItems:"baseline",gap:6}}>
-                              <span style={{fontSize:15,fontWeight:800,color:c.tx}}>{p.name}</span>
-                              {dayNum != null && <span style={{fontSize:10,color:"#94A3B8"}}>入院{dayNum}日目</span>}
-                            </div>
-                            <div style={{fontSize:11,color:"#64748B"}}>{p.room}{p.doctor && " · "+p.doctor+"Dr"} · {p.diagnosis}</div>
-                          </div>
-                          <div style={{display:"flex",gap:4}}>
-                            <button onClick={e=>{e.stopPropagation();setPatModal({edit:p});}} style={{border:"none",background:"transparent",color:"#94A3B8",fontSize:14,cursor:"pointer",padding:4}}>✎</button>
-                            <button onClick={e=>{e.stopPropagation();dischargePat(p.id);}}
-                              style={{border:"none",background:"#FEE2E2",color:"#EF4444",fontSize:11,fontWeight:700,borderRadius:6,padding:"2px 8px",cursor:"pointer"}}>退院</button>
-                          </div>
-                        </div>
-                        {isE && (
-                          <div style={{padding:"10px 14px",fontSize:12,color:"#475569",display:"flex",flexDirection:"column",gap:6}}>
-                            <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
-                              <span>{p.age}歳 {p.sex==="F"?"♀":"♂"}</span>
-                              {p.weight && <span>体重 {p.weight}kg</span>}
-                              {p.cr && <span>Cr {p.cr}</span>}
-                              {cv != null && <span style={{fontWeight:700,color:cv<30?"#DC2626":cv<60?"#D97706":"#166534"}}>CCr {cv}</span>}
-                            </div>
-                            {p.admitDate && <div style={{color:"#64748B"}}>入院: {p.admitDate}{p.dischargePlan && <span style={{color:"#7C3AED",fontWeight:700}}> → 退院予定: {p.dischargePlan}</span>}</div>}
-                            {p.family && <div>🏠 家族形態: {p.family}{p.careLevel && p.careLevel !== "なし" && <span style={{marginLeft:6,color:"#9333EA"}}>介護{p.careLevel}</span>}</div>}
-                            {p.lastFamilyCall && <div style={{color:"#0369A1",fontWeight:600}}>📞 最終家族TEL: {p.lastFamilyCall}</div>}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
                   {/* Study list */}
-                  <div style={{background:"white",borderRadius:14,padding:"10px 14px",boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}}>
+                  <div style={{background:"white",borderRadius:14,marginBottom:12,padding:"10px 14px",boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}}>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                       <span style={{fontSize:13,fontWeight:700,color:"#6D28D9"}}>📚 勉強リスト</span>
                       <button onClick={() => setStudyList(pr => [...pr,{id:Date.now(),text:"",checked:false}])}
@@ -1359,7 +1311,7 @@ export default function App() {
 
             {/* Bottom navigation */}
             <div style={{paddingBottom:"env(safe-area-inset-bottom,0px)",flexShrink:0,background:"white",borderTop:"1px solid #E2E8F0",display:"flex",boxShadow:"0 -2px 10px rgba(0,0,0,0.06)"}}>
-              {[["schedule","📋","予定表"],["todo","✅","今日"],["patients","👤","患者"]].map(([tab,icon,label]) => (
+              {[["schedule","📋","予定表"],["todo","✅","今日"]].map(([tab,icon,label]) => (
                 <button key={tab} onClick={() => setMobileTab(tab)} style={{flex:1,height:54,border:"none",background:"none",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,cursor:"pointer",
                   color:mobileTab===tab?"#3B82F6":"#94A3B8"}}>
                   <span style={{fontSize:20}}>{icon}</span>
