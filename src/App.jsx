@@ -407,7 +407,6 @@ export default function App() {
   useEffect(() => { saveLS("ward_orders_v2", orders); }, [orders]);
   useEffect(() => { saveLS("ward_patCats_v2", patCats); }, [patCats]);
   useEffect(() => { saveLS("ward_rLabs_v2", rLabs); }, [rLabs]);
-  useEffect(() => { saveLS("ward_consults_v2", consults); }, [consults]);
   const today = tdL();
 
   const addOrUpdatePat = p => {
@@ -568,6 +567,7 @@ export default function App() {
   }, [orders, sortedPats, selDateStr]);
 
   const [consults, setConsults] = useState(() => loadLS("ward_consults_v2", {}));
+  useEffect(() => { saveLS("ward_consults_v2", consults); }, [consults]);
   const [studyList, setStudyList] = useState([{id:1,text:"",checked:false},{id:2,text:"",checked:false}]);
   const allC = useMemo(() => ({...amC,...pmC}), [amC, pmC]);
 
