@@ -921,7 +921,7 @@ export default function App() {
   const setVStatus = (pid, st) => setVitals(pr => ({...pr, [pid]: {...(pr[pid]||{}), status: st === vStatus(pid) ? null : st, memo: st === "flag" ? (pr[pid]?.memo||"") : ""}}));
 
   return (
-    <div style={{width:"100%",height:"100vh",display:"flex",flexDirection:"column",fontFamily:"'Noto Sans JP','Hiragino Sans',sans-serif",background:"#F1F5F9",color:"#1E293B"}}>
+    <div style={{width:"100%",flex:1,display:"flex",flexDirection:"column",fontFamily:"'Noto Sans JP','Hiragino Sans',sans-serif",background:"#F1F5F9",color:"#1E293B",minHeight:0}}>
       {/* Header */}
       <header style={{display:"flex",alignItems:"center",gap:10,padding:"0 14px",height:48,background:"white",borderBottom:"1px solid #E2E8F0",flexShrink:0}}>
         <span style={{fontSize:18,width:30,height:30,borderRadius:8,background:"linear-gradient(135deg,#3B82F6,#1D4ED8)",display:"flex",alignItems:"center",justifyContent:"center",color:"white",flexShrink:0}}>🏥</span>
@@ -1028,6 +1028,31 @@ export default function App() {
                     </div>
                   )}
 
+                  {/* Patient status overview strip */}
+                  <div style={{background:"white",borderRadius:12,padding:"8px 12px",marginBottom:10,boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}}>
+                    <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",marginBottom:6}}>患者一覧</div>
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                      {filteredPats.map(p => {
+                        const c2 = COL[p.color];
+                        const v2 = curVitals[p.id]||{};
+                        const allTasks = [...Array.from({length:AM},(_,ri)=>amC["am"+ri+"_"+p.id]||emptyCell()), ...Array.from({length:PM_R},(_,ri)=>pmC["pm"+ri+"_"+p.id]||emptyCell())];
+                        const pending = allTasks.filter(x => x.presetId && !x.checked).length;
+                        const hasPri = allTasks.some(x => x.presetId && !x.checked && x.priority);
+                        const hasConsult = (consults[p.id]||[]).some(x => !x.checked && x.text);
+                        const hasFlag = v2.status === "flag";
+                        return (
+                          <div key={p.id} onClick={() => { const el = document.getElementById("pat-card-"+p.id); el?.scrollIntoView({behavior:"smooth",block:"start"}); }}
+                            style={{display:"flex",alignItems:"center",gap:5,padding:"5px 9px",borderRadius:20,border:"2px solid "+c2.bd,background:c2.bg,cursor:"pointer"}}>
+                            <span style={{width:8,height:8,borderRadius:"50%",background:hasFlag?"#EF4444":v2.status==="ok"?"#22C55E":"#CBD5E1",flexShrink:0}}/>
+                            <span style={{fontSize:12,fontWeight:700,color:c2.tx}}>{p.name.split(" ")[0]}</span>
+                            {pending > 0 && <span style={{fontSize:10,background:hasPri?"#FEF3C7":"#F1F5F9",color:hasPri?"#92400E":"#64748B",borderRadius:10,padding:"0 5px",fontWeight:700}}>{pending}</span>}
+                            {hasConsult && <span style={{fontSize:10}}>💬</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   {/* Patient cards */}
                   {filteredPats.map(p => {
                     const c = COL[p.color];
@@ -1038,7 +1063,7 @@ export default function App() {
                     const pc = pendingConfirms[p.id]||[];
                     const dayNum = p.admissionDate ? dB(p.admissionDate, selDateStr) : null;
                     return (
-                      <div key={p.id} style={{background:"white",borderRadius:14,marginBottom:12,border:"2px solid "+c.bd,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+                      <div key={p.id} id={"pat-card-"+p.id} style={{background:"white",borderRadius:14,marginBottom:12,border:"2px solid "+c.bd,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
                         {/* Card header */}
                         <div style={{background:c.hd,padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                           <div>
@@ -1283,6 +1308,7 @@ export default function App() {
                         <div onClick={() => setStudyList(pr => pr.map(x => x.id===it.id?{...x,checked:!x.checked}:x))} style={ck(it.checked,"#8B5CF6",20)}>{it.checked && <Tk s={12}/>}</div>
                         <input value={it.text} onChange={e => setStudyList(pr => pr.map(x => x.id===it.id?{...x,text:e.target.value}:x))}
                           placeholder="テーマ..." style={{...ip,fontSize:14,flex:1,textDecoration:it.checked?"line-through":"none",opacity:it.checked?0.4:1,width:"auto"}}/>
+                        <button onClick={() => setStudyList(pr => pr.filter(x => x.id !== it.id))} style={{border:"none",background:"transparent",color:"#CBD5E1",fontSize:18,cursor:"pointer",padding:"0 2px"}}>✕</button>
                       </div>
                     ))}
                   </div>
@@ -1291,9 +1317,9 @@ export default function App() {
             </div>
 
             {/* Bottom navigation */}
-            <div style={{height:60,flexShrink:0,background:"white",borderTop:"1px solid #E2E8F0",display:"flex",boxShadow:"0 -2px 10px rgba(0,0,0,0.06)"}}>
+            <div style={{paddingBottom:"env(safe-area-inset-bottom,0px)",flexShrink:0,background:"white",borderTop:"1px solid #E2E8F0",display:"flex",boxShadow:"0 -2px 10px rgba(0,0,0,0.06)"}}>
               {[["schedule","📋","予定表"],["todo","✅","今日"],["patients","👤","患者"]].map(([tab,icon,label]) => (
-                <button key={tab} onClick={() => setMobileTab(tab)} style={{flex:1,border:"none",background:"none",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,cursor:"pointer",
+                <button key={tab} onClick={() => setMobileTab(tab)} style={{flex:1,height:54,border:"none",background:"none",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,cursor:"pointer",
                   color:mobileTab===tab?"#3B82F6":"#94A3B8"}}>
                   <span style={{fontSize:20}}>{icon}</span>
                   <span style={{fontSize:10,fontWeight:mobileTab===tab?700:400}}>{label}</span>
