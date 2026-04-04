@@ -391,7 +391,12 @@ export default function App() {
   const [aCL, setACL] = useState({});
   const [dCL, setDCL] = useState({});
   const [rlOpen, setRlOpen] = useState({});
-  const isMobile = false;
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+  useEffect(() => {
+    const fn = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener("resize", fn);
+    return () => window.removeEventListener("resize", fn);
+  }, []);
   const [mobileTab, setMobileTab] = useState("todo");
   const [panel, setPanel] = useState("schedule");
   const [filterDoctor, setFilterDoctor] = useState("all");
@@ -1008,6 +1013,7 @@ export default function App() {
                     const amTasks = Array.from({length:AM}, (_,ri) => ({key:"am"+ri+"_"+p.id, cell:amC["am"+ri+"_"+p.id]||emptyCell()})).filter(x => x.cell.presetId);
                     const pmTasks = Array.from({length:PM_R}, (_,ri) => ({key:"pm"+ri+"_"+p.id, cell:pmC["pm"+ri+"_"+p.id]||emptyCell()})).filter(x => x.cell.presetId);
                     const pc = pendingConfirms[p.id]||[];
+                    const dayNum = p.admissionDate ? dB(p.admissionDate, selDateStr) : null;
                     return (
                       <div key={p.id} style={{background:"white",borderRadius:14,marginBottom:12,border:"2px solid "+c.bd,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
                         {/* Card header */}
@@ -1015,6 +1021,7 @@ export default function App() {
                           <div>
                             <span style={{fontSize:16,fontWeight:800,color:"white"}}>{p.name}</span>
                             <span style={{fontSize:11,color:"rgba(255,255,255,0.8)",marginLeft:8}}>{p.room}{p.doctor?" · "+p.doctor+"Dr":""}</span>
+                            {dayNum != null && <span style={{fontSize:10,color:"rgba(255,255,255,0.7)",marginLeft:6}}>入院{dayNum}日目</span>}
                           </div>
                           <span style={{fontSize:11,color:"rgba(255,255,255,0.75)",maxWidth:100,textAlign:"right",lineHeight:1.3}}>{p.diagnosis}</span>
                         </div>
@@ -1112,6 +1119,24 @@ export default function App() {
                             ))}
                           </div>
                         )}
+
+                        {/* Order checklist */}
+                        {(() => {
+                          const po = orders[p.id]||[], sd = pMD(selDateStr);
+                          const notExp = o => { if (!o.endDate) return true; const ed = pMD(o.endDate); return ed && sd && ed >= sd; };
+                          const drips = po.filter(o => o.type === "drip_main" && o.name && notExp(o));
+                          const meds = po.filter(o => (o.type === "med" || o.type === "abx") && o.name && notExp(o));
+                          const labs = po.filter(o => o.type === "lab" && o.dates?.some(d => { const dd = pMD(d); return dd && sd && dd >= sd; }));
+                          if (drips.length === 0 && meds.length === 0 && labs.length === 0) return null;
+                          return (
+                            <div style={{padding:"8px 14px",borderBottom:"1px solid #F1F5F9",background:"#FFFBEB"}}>
+                              <div style={{fontSize:11,fontWeight:700,color:"#92400E",marginBottom:4}}>📋 オーダー確認</div>
+                              {drips.map(o => <div key={o.id} style={{fontSize:13,color:"#334155",marginBottom:2}}>💉 {o.name} <span style={{color:"#C2410C",fontWeight:700}}>〜{addDw(o.endDate)}</span></div>)}
+                              {meds.map(o => <div key={o.id} style={{fontSize:13,color:"#334155",marginBottom:2}}>{o.type==="abx"?"🦠":"💊"} {o.name} <span style={{color:"#C2410C",fontWeight:700}}>〜{addDw(o.endDate)}</span></div>)}
+                              {labs.map(o => <div key={o.id} style={{fontSize:13,color:"#334155",marginBottom:2}}>🩸 {o.name} <span style={{color:"#0369A1",fontWeight:700}}>{(o.dates||[]).filter(d => { const dd = pMD(d); return dd && sd && dd >= sd; }).map(d => addDw(d)).join(", ")}</span></div>)}
+                            </div>
+                          );
+                        })()}
 
                         {/* Karte */}
                         <div style={{padding:"10px 14px"}}>
