@@ -398,6 +398,8 @@ export default function App() {
     return () => window.removeEventListener("resize", fn);
   }, []);
   const [mobileTab, setMobileTab] = useState("todo");
+  const [showAddAM, setShowAddAM] = useState({});
+  const [showAddPM, setShowAddPM] = useState({});
   const [panel, setPanel] = useState("schedule");
   const [filterDoctor, setFilterDoctor] = useState("all");
   const [showDrFilter, setShowDrFilter] = useState(false);
@@ -407,6 +409,26 @@ export default function App() {
   useEffect(() => { saveLS("ward_orders_v2", orders); }, [orders]);
   useEffect(() => { saveLS("ward_patCats_v2", patCats); }, [patCats]);
   useEffect(() => { saveLS("ward_rLabs_v2", rLabs); }, [rLabs]);
+  // Migrate old drip_main/med bar orders (startDate/endDate) to dates[]
+  useEffect(() => {
+    setOrders(prev => {
+      let changed = false;
+      const next = {};
+      Object.keys(prev).forEach(pid => {
+        next[pid] = (prev[pid]||[]).map(o => {
+          if ((o.type === "drip_main" || o.type === "med") && o.startDate && !(o.dates?.length)) {
+            changed = true;
+            const dates = [];
+            let d = pMD(o.startDate), e = pMD(o.endDate || o.startDate);
+            if (d && e) { while (d <= e) { dates.push(fD(d)); d = new Date(d); d.setDate(d.getDate()+1); } }
+            return {...o, dates, startDate: null, endDate: null};
+          }
+          return o;
+        });
+      });
+      return changed ? next : prev;
+    });
+  }, []); // run once on mount
   const today = tdL();
 
   const addOrUpdatePat = p => {
@@ -815,7 +837,7 @@ export default function App() {
                 const ds = fD(d), t = isTd(d);
                 return (
                   <td key={di} style={{padding:"1px 0",borderBottom:"1px solid #F1F5F9",borderLeft:"1px solid #F1F5F9",background:t?"#EFF6FF20":"transparent",verticalAlign:"middle"}}>
-                    {cat.isBar ? (() => {
+                    {(cat.isBar && cat.type !== "drip_main" && cat.type !== "med") ? (() => {
                       if (!it.name) return <div style={{height:12}}/>;
                       const on = it.startDate && it.endDate && bSp(it.startDate, it.endDate, ds);
                       const iS = it.startDate === ds, iE = it.endDate === ds;
@@ -1066,19 +1088,28 @@ export default function App() {
                             </div>
                           ))}
                           {amTasks.length < AM && (
-                            <div style={{position:"relative"}}>
-                              {PRESETS.map((pr2, pi) => (
-                                <button key={pr2.id} onClick={() => {
-                                  const slot = Array.from({length:AM},(_,ri)=>ri).find(ri => !(amC["am"+ri+"_"+p.id]||{}).presetId);
-                                  if (slot == null) return;
-                                  const key2 = "am"+slot+"_"+p.id;
-                                  const newCell = {...emptyCell(),presetId:pr2.id,icon:pr2.icon,label:pr2.label,type:pr2.type};
-                                  setAmC(prev => ({...prev,[key2]:newCell}));
-                                  syncTaskToOrder(p.id, newCell, emptyCell());
-                                }} style={{display:"inline-flex",alignItems:"center",gap:4,margin:"2px",padding:"5px 10px",borderRadius:16,border:"1px solid #E2E8F0",background:"#F8FAFC",fontSize:12,color:"#475569",cursor:"pointer"}}>
-                                  {pr2.icon} {pr2.label}
-                                </button>
-                              ))}
+                            <div>
+                              <button onClick={() => setShowAddAM(prev => ({...prev,[p.id]:!prev[p.id]}))}
+                                style={{border:"1px dashed #CBD5E1",background:"transparent",borderRadius:16,padding:"4px 12px",fontSize:12,color:"#94A3B8",cursor:"pointer",marginTop:2}}>
+                                {showAddAM[p.id] ? "▲ 閉じる" : "＋ 追加"}
+                              </button>
+                              {showAddAM[p.id] && (
+                                <div style={{marginTop:4}}>
+                                  {PRESETS.map((pr2) => (
+                                    <button key={pr2.id} onClick={() => {
+                                      const slot = Array.from({length:AM},(_,ri)=>ri).find(ri => !(amC["am"+ri+"_"+p.id]||{}).presetId);
+                                      if (slot == null) return;
+                                      const key2 = "am"+slot+"_"+p.id;
+                                      const newCell = {...emptyCell(),presetId:pr2.id,icon:pr2.icon,label:pr2.label,type:pr2.type};
+                                      setAmC(prev => ({...prev,[key2]:newCell}));
+                                      syncTaskToOrder(p.id, newCell, emptyCell());
+                                      setShowAddAM(prev => ({...prev,[p.id]:false}));
+                                    }} style={{display:"inline-flex",alignItems:"center",gap:4,margin:"2px",padding:"5px 10px",borderRadius:16,border:"1px solid #E2E8F0",background:"#F8FAFC",fontSize:12,color:"#475569",cursor:"pointer"}}>
+                                      {pr2.icon} {pr2.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -1098,7 +1129,12 @@ export default function App() {
                             </div>
                           ))}
                           {pmTasks.length < PM_R && (
-                            <div style={{position:"relative"}}>
+                            <div>
+                              <button onClick={() => setShowAddPM(prev => ({...prev,[p.id]:!prev[p.id]}))}
+                                style={{border:"1px dashed #CBD5E1",background:"transparent",borderRadius:16,padding:"4px 12px",fontSize:12,color:"#94A3B8",cursor:"pointer",marginTop:2}}>
+                                {showAddPM[p.id] ? "▲ 閉じる" : "＋ 追加"}
+                              </button>
+                              {showAddPM[p.id] && <div style={{marginTop:4}}>
                               {PRESETS.map((pr2) => (
                                 <button key={pr2.id} onClick={() => {
                                   const slot = Array.from({length:PM_R},(_,ri)=>ri).find(ri => !(pmC["pm"+ri+"_"+p.id]||{}).presetId);
@@ -1106,10 +1142,12 @@ export default function App() {
                                   const key2 = "pm"+slot+"_"+p.id;
                                   const newCell = {...emptyCell(),presetId:pr2.id,icon:pr2.icon,label:pr2.label,type:pr2.type};
                                   setPmC(prev => ({...prev,[key2]:newCell}));
+                                  setShowAddPM(prev => ({...prev,[p.id]:false}));
                                 }} style={{display:"inline-flex",alignItems:"center",gap:4,margin:"2px",padding:"5px 10px",borderRadius:16,border:"1px solid #E2E8F0",background:"#F8FAFC",fontSize:12,color:"#475569",cursor:"pointer"}}>
                                   {pr2.icon} {pr2.label}
                                 </button>
                               ))}
+                            </div>}
                             </div>
                           )}
                         </div>
