@@ -245,6 +245,39 @@ function PatientModal({onSave, onDelete, onClose, edit, doctors, usedColors}) {
   );
 }
 
+function DischargeModal({patient, onConfirm, onCancel}) {
+  const toDateVal = s => { const d = pMD(s); if (!d) return ""; const m = String(d.getMonth()+1).padStart(2,"0"), dd = String(d.getDate()).padStart(2,"0"); return `2026-${m}-${dd}`; };
+  const fromDateVal = v => { if (!v) return ""; const [,m,d] = v.split("-"); return `${parseInt(m)}/${parseInt(d)}`; };
+  const [fu, setFu] = useState("");
+  const [hasFU, setHasFU] = useState(false);
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:300,background:"rgba(15,23,42,0.6)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={onCancel}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"white",borderRadius:16,width:"100%",maxWidth:360,padding:20,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <h3 style={{margin:"0 0 4px",fontSize:16,fontWeight:800}}>退院処理</h3>
+        <p style={{margin:"0 0 16px",fontSize:13,color:"#64748B"}}>{patient.name}（{patient.diagnosis}）</p>
+        <div style={{marginBottom:14}}>
+          <label style={{display:"flex",alignItems:"center",gap:8,fontSize:14,fontWeight:600,cursor:"pointer"}}>
+            <input type="checkbox" checked={hasFU} onChange={e=>setHasFU(e.target.checked)} style={{width:18,height:18}}/>
+            外来フォロー予定あり
+          </label>
+        </div>
+        {hasFU && (
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:11,color:"#64748B",fontWeight:700,marginBottom:4}}>外来フォロー日</div>
+            <input type="date" value={fu} onChange={e=>setFu(e.target.value)}
+              style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:8,padding:"8px 10px",fontSize:14,outline:"none",boxSizing:"border-box"}}/>
+          </div>
+        )}
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={onCancel} style={{flex:1,border:"1px solid #E2E8F0",background:"white",borderRadius:10,padding:10,fontSize:13,cursor:"pointer",fontWeight:600}}>キャンセル</button>
+          <button onClick={() => onConfirm(patient.id, hasFU ? fromDateVal(fu) : "")}
+            style={{flex:2,border:"none",background:"#EF4444",color:"white",borderRadius:10,padding:10,fontSize:13,fontWeight:700,cursor:"pointer"}}>退院確定</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AddCatModal({onAdd, onClose}) {
   const [icon, setIcon] = useState("📋");
   const [label, setLabel] = useState("");
@@ -400,6 +433,7 @@ export default function App() {
   const [mobileTab, setMobileTab] = useState("todo");
   const [showAddAM, setShowAddAM] = useState({});
   const [showAddPM, setShowAddPM] = useState({});
+  const [dischargeModal, setDischargeModal] = useState(null); // {patient}
   const [panel, setPanel] = useState("schedule");
   const [filterDoctor, setFilterDoctor] = useState("all");
   const [showDrFilter, setShowDrFilter] = useState(false);
@@ -452,9 +486,13 @@ export default function App() {
   };
   const dischargePat = pid => {
     const p = patients.find(x => x.id === pid); if (!p) return;
-    const fu = window.prompt("外来フォロー予定日（例: 4/15）。なければ空白のままEnter");
-    setDischarged(pr => [...pr, {...p, dischargeDate: today, followUp: fu||""}]);
+    setDischargeModal(p);
+  };
+  const confirmDischarge = (pid, followUpDate) => {
+    const p = patients.find(x => x.id === pid); if (!p) return;
+    setDischarged(pr => [...pr, {...p, dischargeDate: today, followUp: followUpDate||""}]);
     setPatients(pr => pr.filter(x => x.id !== pid));
+    setDischargeModal(null);
   };
   const deletePat = pid => {
     setPatients(pr => pr.filter(x => x.id !== pid));
@@ -1013,6 +1051,40 @@ export default function App() {
                       style={{border:"1px solid #E2E8F0",background:"white",borderRadius:8,width:36,height:36,cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>▶</button>
                   </div>
 
+                  {/* Follow-up reminders */}
+                  {(() => {
+                    const todayStr = fD(new Date());
+                    const fuPats = discharged.filter(p => {
+                      if (!p.followUp) return false;
+                      const fd = pMD(p.followUp);
+                      if (!fd) return false;
+                      const diff = Math.round((fd - new Date(new Date().toDateString())) / 86400000);
+                      return diff >= -7 && diff <= 14;
+                    }).sort((a,b) => { const da=pMD(a.followUp), db=pMD(b.followUp); return da-db; });
+                    if (!fuPats.length) return null;
+                    return (
+                      <div style={{background:"#F5F3FF",border:"1px solid #DDD6FE",borderRadius:10,padding:"8px 12px",marginBottom:8}}>
+                        <div style={{fontSize:11,fontWeight:700,color:"#6D28D9",marginBottom:4}}>🏥 外来フォロー</div>
+                        {fuPats.map(p => {
+                          const fd = pMD(p.followUp);
+                          const diff = Math.round((fd - new Date(new Date().toDateString())) / 86400000);
+                          const label = diff === 0 ? "本日" : diff < 0 ? `${Math.abs(diff)}日前` : `${diff}日後`;
+                          const isToday = diff === 0;
+                          const isPast = diff < 0;
+                          return (
+                            <div key={p.id} style={{display:"flex",alignItems:"center",gap:8,padding:"3px 0",borderBottom:"1px solid #EDE9FE"}}>
+                              <span style={{fontSize:11,fontWeight:700,padding:"1px 6px",borderRadius:4,
+                                background:isToday?"#7C3AED":isPast?"#94A3B8":"#DDD6FE",
+                                color:isToday||isPast?"white":"#6D28D9",flexShrink:0}}>{label}</span>
+                              <span style={{fontSize:12,fontWeight:600,color:"#3730A3"}}>{p.name}</span>
+                              <span style={{fontSize:10,color:"#6D28D9"}}>{p.followUp}（{p.diagnosis}）</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+
                   {/* Priority bar */}
                   {priList.length > 0 && (
                     <div style={{background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:10,padding:"8px 12px",marginBottom:8}}>
@@ -1027,31 +1099,6 @@ export default function App() {
                       </div>
                     </div>
                   )}
-
-                  {/* Patient status overview strip */}
-                  <div style={{background:"white",borderRadius:12,padding:"8px 12px",marginBottom:10,boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}}>
-                    <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",marginBottom:6}}>患者一覧</div>
-                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                      {filteredPats.map(p => {
-                        const c2 = COL[p.color];
-                        const v2 = curVitals[p.id]||{};
-                        const allTasks = [...Array.from({length:AM},(_,ri)=>amC["am"+ri+"_"+p.id]||emptyCell()), ...Array.from({length:PM_R},(_,ri)=>pmC["pm"+ri+"_"+p.id]||emptyCell())];
-                        const pending = allTasks.filter(x => x.presetId && !x.checked).length;
-                        const hasPri = allTasks.some(x => x.presetId && !x.checked && x.priority);
-                        const hasConsult = (consults[p.id]||[]).some(x => !x.checked && x.text);
-                        const hasFlag = v2.status === "flag";
-                        return (
-                          <div key={p.id} onClick={() => { const el = document.getElementById("pat-card-"+p.id); el?.scrollIntoView({behavior:"smooth",block:"start"}); }}
-                            style={{display:"flex",alignItems:"center",gap:5,padding:"5px 9px",borderRadius:20,border:"2px solid "+c2.bd,background:c2.bg,cursor:"pointer"}}>
-                            <span style={{width:8,height:8,borderRadius:"50%",background:hasFlag?"#EF4444":v2.status==="ok"?"#22C55E":"#CBD5E1",flexShrink:0}}/>
-                            <span style={{fontSize:12,fontWeight:700,color:c2.tx}}>{p.name.split(" ")[0]}</span>
-                            {pending > 0 && <span style={{fontSize:10,background:hasPri?"#FEF3C7":"#F1F5F9",color:hasPri?"#92400E":"#64748B",borderRadius:10,padding:"0 5px",fontWeight:700}}>{pending}</span>}
-                            {hasConsult && <span style={{fontSize:10}}>💬</span>}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
 
                   {/* Patient cards */}
                   {filteredPats.map(p => {
@@ -1191,27 +1238,6 @@ export default function App() {
                             ))}
                           </div>
                         )}
-
-                        {/* Order checklist */}
-                        {(() => {
-                          const po = orders[p.id]||[], sd = pMD(selDateStr);
-                          const onToday2 = o => o.dates?.some(d => d === selDateStr);
-                          const notExpAbx2 = o => { if (!o.endDate) return true; const ed = pMD(o.endDate); return ed && sd && ed >= sd; };
-                          const drips = po.filter(o => o.type === "drip_main" && o.name && onToday2(o));
-                          const meds = po.filter(o => o.type === "med" && o.name && onToday2(o));
-                          const abxs = po.filter(o => o.type === "abx" && o.name && notExpAbx2(o));
-                          const labs = po.filter(o => o.type === "lab" && o.dates?.some(d => { const dd = pMD(d); return dd && sd && dd >= sd; }));
-                          if (drips.length === 0 && meds.length === 0 && abxs.length === 0 && labs.length === 0) return null;
-                          return (
-                            <div style={{padding:"8px 14px",borderBottom:"1px solid #F1F5F9",background:"#FFFBEB"}}>
-                              <div style={{fontSize:11,fontWeight:700,color:"#92400E",marginBottom:4}}>📋 オーダー確認</div>
-                              {drips.map(o => <div key={o.id} style={{fontSize:13,color:"#334155",marginBottom:2}}>💉 {o.name}</div>)}
-                              {meds.map(o => <div key={o.id} style={{fontSize:13,color:"#334155",marginBottom:2}}>💊 {o.name}</div>)}
-                              {abxs.map(o => <div key={o.id} style={{fontSize:13,color:"#334155",marginBottom:2}}>🦠 {o.name} <span style={{color:"#C2410C",fontWeight:700}}>〜{addDw(o.endDate)}</span></div>)}
-                              {labs.map(o => <div key={o.id} style={{fontSize:13,color:"#334155",marginBottom:2}}>🩸 {o.name} <span style={{color:"#0369A1",fontWeight:700}}>{(o.dates||[]).filter(d => { const dd = pMD(d); return dd && sd && dd >= sd; }).map(d => addDw(d)).join(", ")}</span></div>)}
-                            </div>
-                          );
-                        })()}
 
                         {/* Karte */}
                         <div style={{padding:"10px 14px"}}>
@@ -1577,6 +1603,7 @@ export default function App() {
       {/* Modals */}
       {patModal !== null && <PatientModal edit={patModal.edit} onSave={addOrUpdatePat} onDelete={deletePat} onClose={() => setPatModal(null)} doctors={doctors} usedColors={patients.map(p=>p.color)}/>}
       {catModal && <AddCatModal onAdd={c => setPatCats(pr => ({...pr,[catModal]:[...(pr[catModal]||DEFAULT_CATS),c]}))} onClose={() => setCatModal(null)}/>}
+      {dischargeModal && <DischargeModal patient={dischargeModal} onConfirm={confirmDischarge} onCancel={() => setDischargeModal(null)}/>}
     </div>
   );
 }
