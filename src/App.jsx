@@ -1312,7 +1312,7 @@ export default function App() {
             {/* Bottom navigation */}
             <div style={{paddingBottom:"env(safe-area-inset-bottom,0px)",flexShrink:0,background:"white",borderTop:"1px solid #E2E8F0",display:"flex",boxShadow:"0 -2px 10px rgba(0,0,0,0.06)"}}>
               {[["schedule","📋","予定表"],["todo","✅","今日"]].map(([tab,icon,label]) => (
-                <button key={tab} onClick={() => setMobileTab(tab)} style={{flex:1,height:54,border:"none",background:"none",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,cursor:"pointer",
+                <button key={tab} onClick={() => { setMobileTab(tab); if (tab === "todo") setSelDate(new Date()); }} style={{flex:1,height:54,border:"none",background:"none",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,cursor:"pointer",
                   color:mobileTab===tab?"#3B82F6":"#94A3B8"}}>
                   <span style={{fontSize:20}}>{icon}</span>
                   <span style={{fontSize:10,fontWeight:mobileTab===tab?700:400}}>{label}</span>
