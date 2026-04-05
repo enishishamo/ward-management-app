@@ -1178,12 +1178,14 @@ export default function App() {
                       <div key={p.id} id={"pat-card-"+p.id} style={{background:"white",borderRadius:14,marginBottom:12,border:"2px solid "+c.bd,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
                         {/* Card header */}
                         <div style={{background:c.hd,padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                          <div>
+                          <div style={{flex:1,minWidth:0}}>
                             <span style={{fontSize:16,fontWeight:800,color:"white"}}>{p.name}</span>
                             <span style={{fontSize:11,color:"rgba(255,255,255,0.8)",marginLeft:8}}>{p.room}{p.doctor?" · "+p.doctor+"Dr":""}</span>
                             {dayNum != null && <span style={{fontSize:10,color:"rgba(255,255,255,0.7)",marginLeft:6}}>入院{dayNum}日目</span>}
+                            <div style={{fontSize:11,color:"rgba(255,255,255,0.75)",marginTop:1,lineHeight:1.3}}>{p.diagnosis}</div>
                           </div>
-                          <span style={{fontSize:11,color:"rgba(255,255,255,0.75)",maxWidth:100,textAlign:"right",lineHeight:1.3}}>{p.diagnosis}</span>
+                          <button onClick={() => dischargePat(p.id)}
+                            style={{border:"none",background:"rgba(255,255,255,0.2)",color:"white",borderRadius:6,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0,marginLeft:8}}>退院</button>
                         </div>
 
                         {/* Vitals */}
