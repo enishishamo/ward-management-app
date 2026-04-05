@@ -439,6 +439,7 @@ export default function App() {
     return () => window.removeEventListener("resize", fn);
   }, []);
   const [mobileTab, setMobileTab] = useState("todo");
+  const [todayView, setTodayView] = useState("summary"); // "summary" | "cards"
   const [showAddAM, setShowAddAM] = useState({});
   const [showAddPM, setShowAddPM] = useState({});
   const [dischargeModal, setDischargeModal] = useState(null); // {patient}
@@ -647,7 +648,7 @@ export default function App() {
   const compT = key => {
     const c = allC[key]; if (!c) return;
     const was = c.checked, pri = c.priority;
-    const dn = (prev, own) => { const n = {...prev}; if (own) n[key] = {...n[key], checked: !was, priority: !was ? null : pri}; if (!was && pri) Object.keys(n).forEach(k => { if (k !== key && n[k].priority && n[k].priority > pri) n[k] = {...n[k], priority: n[k].priority-1}; }); return n; };
+    const dn = (prev, own) => { const n = {...prev}; if (own) n[key] = {...c, checked: !was, priority: !was ? null : pri}; if (!was && pri) Object.keys(n).forEach(k => { if (k !== key && n[k].priority && n[k].priority > pri) n[k] = {...n[k], priority: n[k].priority-1}; }); return n; };
     if (key.startsWith("am")) { setAmC(p => dn(p, true)); setPmC(p => dn(p, false)); } else { setPmC(p => dn(p, true)); setAmC(p => dn(p, false)); }
   };
   const priList = useMemo(() => Object.entries(allC).filter(([,v]) => v.priority && !v.checked && v.presetId)
@@ -1016,9 +1017,13 @@ export default function App() {
               {/* Tab: 予定表 */}
               {mobileTab === "schedule" && (
                 <div style={{background:"white",minHeight:"100%"}}>
-                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 14px",borderBottom:"1px solid #E5E7EB"}}>
-                    <h2 style={{margin:0,fontSize:13,fontWeight:700}}>📋 週間予定表</h2>
-                    <span style={{fontSize:10,color:"#94A3B8"}}>{fD(wk[0])}〜{fD(wk[6])}</span>
+                  <div style={{display:"flex",alignItems:"center",gap:6,padding:"8px 10px",borderBottom:"1px solid #E5E7EB"}}>
+                    <button onClick={() => { const d=new Date(selDate); d.setDate(d.getDate()-7); setSelDate(d); }} style={{border:"1px solid #E2E8F0",background:"white",borderRadius:6,width:30,height:30,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>◀</button>
+                    <div style={{flex:1,textAlign:"center"}}>
+                      <div style={{fontSize:12,fontWeight:700}}>📋 週間予定表</div>
+                      <div style={{fontSize:10,color:"#94A3B8"}}>{fD(wk[0])}〜{fD(wk[6])}</div>
+                    </div>
+                    <button onClick={() => { const d=new Date(selDate); d.setDate(d.getDate()+7); setSelDate(d); }} style={{border:"1px solid #E2E8F0",background:"white",borderRadius:6,width:30,height:30,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>▶</button>
                   </div>
                   <div style={{overflowX:"auto"}}>
                     <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed",minWidth:480}}>
@@ -1059,6 +1064,19 @@ export default function App() {
                       style={{border:"1px solid #E2E8F0",background:"white",borderRadius:8,width:36,height:36,cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>▶</button>
                   </div>
 
+                  {/* View mode toggle */}
+                  <div style={{display:"flex",background:"#F1F5F9",borderRadius:8,padding:3,marginBottom:8,gap:2}}>
+                    {[["summary","📋 サマリー"],["cards","🃏 カード"]].map(([mode,label]) => (
+                      <button key={mode} onClick={() => setTodayView(mode)}
+                        style={{flex:1,border:"none",borderRadius:6,padding:"6px 0",fontSize:12,fontWeight:700,cursor:"pointer",
+                          background:todayView===mode?"white":"transparent",
+                          color:todayView===mode?"#1D4ED8":"#94A3B8",
+                          boxShadow:todayView===mode?"0 1px 3px rgba(0,0,0,0.1)":"none"}}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
                   {/* Follow-up reminders */}
                   {(() => {
                     const todayStr = fD(new Date());
@@ -1093,8 +1111,8 @@ export default function App() {
                     );
                   })()}
 
-                  {/* Patient status overview */}
-                  {(() => {
+                  {/* Patient status overview (summary mode only) */}
+                  {todayView === "summary" && (() => {
                     const rows = filteredPats.map(p => {
                       const amT = Array.from({length:AM}, (_,ri) => amC["am"+ri+"_"+p.id]||emptyCell()).filter(x=>x.presetId);
                       const pmT = Array.from({length:PM_R}, (_,ri) => pmC["pm"+ri+"_"+p.id]||emptyCell()).filter(x=>x.presetId);
@@ -1122,7 +1140,7 @@ export default function App() {
                           const c = COL[p.color];
                           const badge = urgent ? {bg:"#DC2626",label:"!"} : minPri < Infinity ? {bg:"#D97706",label:minPri} : done ? {bg:"#22C55E",label:"✓"} : null;
                           return (
-                            <div key={p.id} onClick={() => document.getElementById("pat-card-"+p.id)?.scrollIntoView({behavior:"smooth",block:"start"})}
+                            <div key={p.id} onClick={() => { setTodayView("cards"); setTimeout(() => document.getElementById("pat-card-"+p.id)?.scrollIntoView({behavior:"smooth",block:"start"}), 50); }}
                               style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",borderBottom:"1px solid #F8FAFC",cursor:"pointer",
                                 background:urgent?"#FFF7ED20":done?"#F0FDF420":"white"}}>
                               <div style={{width:22,height:22,borderRadius:5,background:badge?badge.bg:c.hd,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -1147,8 +1165,8 @@ export default function App() {
                     );
                   })()}
 
-                  {/* Patient cards */}
-                  {filteredPats.map(p => {
+                  {/* Patient cards (cards mode only) */}
+                  {todayView === "cards" && filteredPats.map(p => {
                     const c = COL[p.color];
                     const v = curVitals[p.id] || {status:null,memo:""};
                     const k = curKarte[p.id] || {checked:false,memo:""};
@@ -1302,6 +1320,7 @@ export default function App() {
                     );
                   })}
 
+                  {/* Consults & Study list (both modes) */}
                   {/* Consults (mobile) */}
                   <div style={{background:"white",borderRadius:14,marginBottom:12,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
                     <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",background:"#FFF7ED",borderBottom:"1px solid #FED7AA"}}>
