@@ -260,7 +260,7 @@ function DischargeModal({patient, onConfirm, onCancel}) {
   const [hasFU, setHasFU] = useState(false);
   return (
     <div style={{position:"fixed",inset:0,zIndex:300,background:"rgba(15,23,42,0.6)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={onCancel}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"white",borderRadius:16,width:"100%",maxWidth:360,padding:20,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"white",borderRadius:16,width:"100%",maxWidth:360,padding:20,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",boxSizing:"border-box"}}>
         <h3 style={{margin:"0 0 4px",fontSize:16,fontWeight:800}}>退院処理</h3>
         <p style={{margin:"0 0 16px",fontSize:13,color:"#64748B"}}>{patient.name}（{patient.diagnosis}）</p>
         <div style={{marginBottom:14}}>
