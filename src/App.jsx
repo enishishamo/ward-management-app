@@ -1093,20 +1093,59 @@ export default function App() {
                     );
                   })()}
 
-                  {/* Priority bar */}
-                  {priList.length > 0 && (
-                    <div style={{background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:10,padding:"8px 12px",marginBottom:8}}>
-                      <div style={{fontSize:11,fontWeight:700,color:"#D97706",marginBottom:4}}>🚨 優先順位</div>
-                      <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
-                        {priList.map(it => { const cl = it.patient ? COL[it.patient.color] : null; return (
-                          <div key={it.key} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:6,fontSize:11,fontWeight:600,background:cl?.bg,color:cl?.tx,border:"1px solid "+(cl?.bd||"#E2E8F0")}}>
-                            <span style={{width:16,height:16,borderRadius:4,background:"#D97706",color:"white",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800}}>{it.priority}</span>
-                            {it.icon} {it.patient?.name.split(" ")[0]}: {it.label||it.text}
-                          </div>
-                        ); })}
+                  {/* Patient status overview */}
+                  {(() => {
+                    const rows = filteredPats.map(p => {
+                      const amT = Array.from({length:AM}, (_,ri) => amC["am"+ri+"_"+p.id]||emptyCell()).filter(x=>x.presetId);
+                      const pmT = Array.from({length:PM_R}, (_,ri) => pmC["pm"+ri+"_"+p.id]||emptyCell()).filter(x=>x.presetId);
+                      const unc = [...amT,...pmT].filter(x=>!x.checked);
+                      const minPri = unc.filter(x=>x.priority).sort((a,b)=>a.priority-b.priority)[0]?.priority ?? Infinity;
+                      const urgent = (consults[p.id]||[]).some(x=>x.urgent&&!x.checked&&x.text);
+                      const pc = pendingConfirms[p.id]||[];
+                      const done = unc.length===0 && pc.length===0 && !urgent;
+                      return {p, unc, minPri, urgent, pc, done};
+                    }).sort((a,b) => {
+                      if (a.urgent && !b.urgent) return -1;
+                      if (!a.urgent && b.urgent) return 1;
+                      if (a.minPri !== b.minPri) return a.minPri - b.minPri;
+                      if (a.done && !b.done) return 1;
+                      if (!a.done && b.done) return -1;
+                      return b.unc.length - a.unc.length;
+                    });
+                    return (
+                      <div style={{background:"white",borderRadius:12,marginBottom:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+                        <div style={{padding:"7px 12px",background:"#F1F5F9",borderBottom:"1px solid #E2E8F0",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                          <span style={{fontSize:11,fontWeight:700,color:"#475569"}}>👥 患者サマリー</span>
+                          <span style={{fontSize:10,color:"#94A3B8"}}>{filteredPats.filter((_,i)=>!rows[i]?.done).length}人 未完了 / {filteredPats.length}人</span>
+                        </div>
+                        {rows.map(({p, unc, minPri, urgent, pc, done}) => {
+                          const c = COL[p.color];
+                          const badge = urgent ? {bg:"#DC2626",label:"!"} : minPri < Infinity ? {bg:"#D97706",label:minPri} : done ? {bg:"#22C55E",label:"✓"} : null;
+                          return (
+                            <div key={p.id} onClick={() => document.getElementById("pat-card-"+p.id)?.scrollIntoView({behavior:"smooth",block:"start"})}
+                              style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",borderBottom:"1px solid #F8FAFC",cursor:"pointer",
+                                background:urgent?"#FFF7ED20":done?"#F0FDF420":"white"}}>
+                              <div style={{width:22,height:22,borderRadius:5,background:badge?badge.bg:c.hd,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                <span style={{fontSize:11,fontWeight:800,color:"white"}}>{badge?badge.label:"·"}</span>
+                              </div>
+                              <span style={{fontSize:13,fontWeight:700,color:c.tx,width:64,flexShrink:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</span>
+                              <div style={{flex:1,display:"flex",flexWrap:"wrap",gap:3,overflow:"hidden",minWidth:0}}>
+                                {unc.slice(0,4).map((t,i) => (
+                                  <span key={i} style={{fontSize:10,padding:"1px 5px",borderRadius:3,background:c.bg,color:c.tx,border:"1px solid "+c.bd,whiteSpace:"nowrap",lineHeight:1.4}}>
+                                    {t.icon}{t.priority?<b style={{color:"#D97706",marginLeft:1}}>{t.priority}</b>:""} {(t.label||t.text||"").slice(0,7)}
+                                  </span>
+                                ))}
+                                {unc.length > 4 && <span style={{fontSize:10,color:"#94A3B8",alignSelf:"center"}}>+{unc.length-4}</span>}
+                                {pc.length > 0 && <span style={{fontSize:10,padding:"1px 5px",borderRadius:3,background:"#FFF7ED",color:"#C2410C",border:"1px solid #FED7AA",whiteSpace:"nowrap",lineHeight:1.4}}>🔍{pc.length}</span>}
+                                {urgent && <span style={{fontSize:10,padding:"1px 5px",borderRadius:3,background:"#FEE2E2",color:"#DC2626",border:"1px solid #FECACA",fontWeight:700,whiteSpace:"nowrap",lineHeight:1.4}}>⚠要相談</span>}
+                                {done && <span style={{fontSize:10,color:"#86EFAC",fontWeight:700}}>完了</span>}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {/* Patient cards */}
                   {filteredPats.map(p => {
