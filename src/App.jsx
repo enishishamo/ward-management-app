@@ -1026,8 +1026,8 @@ export default function App() {
                     <button onClick={() => { const d=new Date(selDate); d.setDate(d.getDate()+7); setSelDate(d); }} style={{border:"1px solid #E2E8F0",background:"white",borderRadius:6,width:30,height:30,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>▶</button>
                   </div>
                   <div style={{overflowX:"auto"}}>
-                    <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed",minWidth:480}}>
-                      <colgroup><col style={{width:120}}/>{wk.map((_,i) => <col key={i} style={{width:44}}/>)}</colgroup>
+                    <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed"}}>
+                      <colgroup><col style={{width:"30%"}}/>{wk.map((_,i) => <col key={i} style={{width:"10%"}}/>)}</colgroup>
                       <thead><tr>
                         <th style={{position:"sticky",top:0,zIndex:5,padding:"5px 6px",background:"#F8FAFC",borderBottom:"2px solid #E2E8F0",fontSize:9,color:"#64748B",fontWeight:600,textAlign:"left"}}>患者/オーダー</th>
                         {wk.map((d, i) => { const t = isTd(d); return (
@@ -1085,7 +1085,7 @@ export default function App() {
                       const fd = pMD(p.followUp);
                       if (!fd) return false;
                       const diff = Math.round((fd - new Date(new Date().toDateString())) / 86400000);
-                      return diff >= -7 && diff <= 14;
+                      return diff >= -1 && diff <= 0;
                     }).sort((a,b) => { const da=pMD(a.followUp), db=pMD(b.followUp); return da-db; });
                     if (!fuPats.length) return null;
                     return (
