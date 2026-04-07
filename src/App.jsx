@@ -18,6 +18,7 @@ const PRESETS = [
   {id:"rehab_call",icon:"🏃",label:"リハさんに電話",type:"rehab_call"},
   {id:"msw_call",icon:"👩‍⚕️",label:"MSWに電話",type:"msw_call"},
   {id:"family_call",icon:"📞",label:"家族に電話",type:"family_call"},
+  {id:"consult",icon:"📨",label:"他科コンサルト",type:"consult"},
   {id:"meds",icon:"💊",label:"投薬確認"},
   {id:"free",icon:"✏️",label:"自由記載",type:"free"}
 ];
