@@ -1111,56 +1111,124 @@ export default function App() {
                     );
                   })()}
 
-                  {/* Patient status overview (summary mode only) */}
+                  {/* Timeline matrix (summary mode only) */}
                   {todayView === "summary" && (() => {
-                    const rows = filteredPats.map(p => {
-                      const amT = Array.from({length:AM}, (_,ri) => amC["am"+ri+"_"+p.id]||emptyCell()).filter(x=>x.presetId);
-                      const pmT = Array.from({length:PM_R}, (_,ri) => pmC["pm"+ri+"_"+p.id]||emptyCell()).filter(x=>x.presetId);
-                      const unc = [...amT,...pmT].filter(x=>!x.checked);
-                      const minPri = unc.filter(x=>x.priority).sort((a,b)=>a.priority-b.priority)[0]?.priority ?? Infinity;
-                      const urgent = (consults[p.id]||[]).some(x=>x.urgent&&!x.checked&&x.text);
-                      const pc = pendingConfirms[p.id]||[];
-                      const done = unc.length===0 && pc.length===0 && !urgent;
-                      return {p, unc, minPri, urgent, pc, done};
-                    }).sort((a,b) => {
-                      if (a.urgent && !b.urgent) return -1;
-                      if (!a.urgent && b.urgent) return 1;
-                      if (a.minPri !== b.minPri) return a.minPri - b.minPri;
-                      if (a.done && !b.done) return 1;
-                      if (!a.done && b.done) return -1;
-                      return b.unc.length - a.unc.length;
-                    });
-                    return (
-                      <div style={{background:"white",borderRadius:12,marginBottom:8,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-                        <div style={{padding:"7px 12px",background:"#F1F5F9",borderBottom:"1px solid #E2E8F0",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                          <span style={{fontSize:11,fontWeight:700,color:"#475569"}}>👥 患者サマリー</span>
-                          <span style={{fontSize:10,color:"#94A3B8"}}>{filteredPats.filter((_,i)=>!rows[i]?.done).length}人 未完了 / {filteredPats.length}人</span>
+                    const stickyL = {position:"sticky",left:0,zIndex:2,background:"white"};
+                    const cellSt = (p) => ({padding:"4px 6px",borderBottom:"1px solid #F1F5F9",borderLeft:"1px solid #E2E8F0",verticalAlign:"top",minWidth:92,maxWidth:92});
+                    const TaskCell = ({taskKey, pid}) => {
+                      const cell = amC[taskKey] || pmC[taskKey] || emptyCell();
+                      const c = COL[filteredPats.find(p=>p.id===pid)?.color||"blue"];
+                      if (!cell.presetId) return <div style={{width:14,height:14,borderRadius:3,border:"1px solid #E2E8F0",margin:"3px 0"}}/>;
+                      return (
+                        <div style={{display:"flex",alignItems:"flex-start",gap:4,padding:"2px 0"}}>
+                          <div onClick={() => compT(taskKey)} style={{...ck(cell.checked,c.dt,14),marginTop:1,flexShrink:0}}>{cell.checked&&<Tk s={8}/>}</div>
+                          <span style={{fontSize:10,color:cell.checked?"#CBD5E1":"#334155",textDecoration:cell.checked?"line-through":"none",lineHeight:1.3,wordBreak:"break-all"}}>
+                            {cell.priority&&<b style={{color:"#D97706",marginRight:2}}>{cell.priority}</b>}{cell.icon} {(cell.label||cell.text||"").slice(0,10)}
+                          </span>
                         </div>
-                        {rows.map(({p, unc, minPri, urgent, pc, done}) => {
-                          const c = COL[p.color];
-                          const badge = urgent ? {bg:"#DC2626",label:"!"} : minPri < Infinity ? {bg:"#D97706",label:minPri} : done ? {bg:"#22C55E",label:"✓"} : null;
-                          return (
-                            <div key={p.id} onClick={() => { setTodayView("cards"); setTimeout(() => document.getElementById("pat-card-"+p.id)?.scrollIntoView({behavior:"smooth",block:"start"}), 50); }}
-                              style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",borderBottom:"1px solid #F8FAFC",cursor:"pointer",
-                                background:urgent?"#FFF7ED20":done?"#F0FDF420":"white"}}>
-                              <div style={{width:22,height:22,borderRadius:5,background:badge?badge.bg:c.hd,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                                <span style={{fontSize:11,fontWeight:800,color:"white"}}>{badge?badge.label:"·"}</span>
-                              </div>
-                              <span style={{fontSize:13,fontWeight:700,color:c.tx,width:64,flexShrink:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</span>
-                              <div style={{flex:1,display:"flex",flexWrap:"wrap",gap:3,overflow:"hidden",minWidth:0}}>
-                                {unc.slice(0,4).map((t,i) => (
-                                  <span key={i} style={{fontSize:10,padding:"1px 5px",borderRadius:3,background:c.bg,color:c.tx,border:"1px solid "+c.bd,whiteSpace:"nowrap",lineHeight:1.4}}>
-                                    {t.icon}{t.priority?<b style={{color:"#D97706",marginLeft:1}}>{t.priority}</b>:""} {(t.label||t.text||"").slice(0,7)}
-                                  </span>
-                                ))}
-                                {unc.length > 4 && <span style={{fontSize:10,color:"#94A3B8",alignSelf:"center"}}>+{unc.length-4}</span>}
-                                {pc.length > 0 && <span style={{fontSize:10,padding:"1px 5px",borderRadius:3,background:"#FFF7ED",color:"#C2410C",border:"1px solid #FED7AA",whiteSpace:"nowrap",lineHeight:1.4}}>🔍{pc.length}</span>}
-                                {urgent && <span style={{fontSize:10,padding:"1px 5px",borderRadius:3,background:"#FEE2E2",color:"#DC2626",border:"1px solid #FECACA",fontWeight:700,whiteSpace:"nowrap",lineHeight:1.4}}>⚠要相談</span>}
-                                {done && <span style={{fontSize:10,color:"#86EFAC",fontWeight:700}}>完了</span>}
-                              </div>
-                            </div>
-                          );
-                        })}
+                      );
+                    };
+                    return (
+                      <div style={{borderRadius:12,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)",marginBottom:8}}>
+                        <div style={{overflowX:"auto"}}>
+                          <table style={{borderCollapse:"collapse",tableLayout:"fixed",width:"max-content"}}>
+                            {/* Patient name header */}
+                            <thead>
+                              <tr>
+                                <th style={{...stickyL,width:36,background:"#F1F5F9",borderBottom:"2px solid #E2E8F0",borderRight:"2px solid #E2E8F0"}}/>
+                                {filteredPats.map(p => {
+                                  const c = COL[p.color];
+                                  return (
+                                    <th key={p.id} style={{background:c.hd,color:"white",padding:"6px 8px",fontSize:12,fontWeight:700,textAlign:"left",
+                                      width:92,borderBottom:"2px solid "+c.bd,borderLeft:"1px solid rgba(255,255,255,0.3)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                                      {p.name.split(" ")[0]}
+                                    </th>
+                                  );
+                                })}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {/* AM rows */}
+                              {Array.from({length:AM},(_,ri) => (
+                                <tr key={"am"+ri} style={{background:ri%2===0?"white":"#FAFBFC"}}>
+                                  {ri===0 && (
+                                    <td rowSpan={AM} style={{...stickyL,width:36,textAlign:"center",fontWeight:800,fontSize:11,color:"#2563EB",
+                                      background:"#EFF6FF",borderRight:"2px solid #BFDBFE",borderBottom:"2px solid #BFDBFE",padding:"4px 2px"}}>
+                                      AM
+                                    </td>
+                                  )}
+                                  {filteredPats.map(p => (
+                                    <td key={p.id} style={cellSt(p)}>
+                                      <TaskCell taskKey={"am"+ri+"_"+p.id} pid={p.id}/>
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))}
+                              {/* PM rows */}
+                              {Array.from({length:PM_R},(_,ri) => (
+                                <tr key={"pm"+ri} style={{background:ri%2===0?"#FFFBF5":"#FFF7ED"}}>
+                                  {ri===0 && (
+                                    <td rowSpan={PM_R} style={{...stickyL,width:36,textAlign:"center",fontWeight:800,fontSize:11,color:"#C2410C",
+                                      background:"#FFF7ED",borderRight:"2px solid #FED7AA",borderBottom:"2px solid #FED7AA",padding:"4px 2px"}}>
+                                      PM
+                                    </td>
+                                  )}
+                                  {filteredPats.map(p => (
+                                    <td key={p.id} style={cellSt(p)}>
+                                      <TaskCell taskKey={"pm"+ri+"_"+p.id} pid={p.id}/>
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))}
+                              {/* Consults row */}
+                              <tr style={{background:"#FFF7ED"}}>
+                                <td style={{...stickyL,width:36,textAlign:"center",fontWeight:700,fontSize:9,color:"#92400E",
+                                  background:"#FEF3C7",borderRight:"2px solid #FDE68A",borderTop:"2px solid #FDE68A",padding:"4px 2px",lineHeight:1.3}}>
+                                  上級医<br/>相談
+                                </td>
+                                {filteredPats.map(p => {
+                                  const its = (consults[p.id]||[]).filter(x=>x.text);
+                                  const c = COL[p.color];
+                                  return (
+                                    <td key={p.id} style={{...cellSt(p),borderTop:"2px solid #FDE68A"}}>
+                                      {its.map(it => (
+                                        <div key={it.id} style={{display:"flex",alignItems:"flex-start",gap:3,padding:"2px 0"}}>
+                                          <div onClick={() => setConsults(pr=>({...pr,[p.id]:(pr[p.id]||[]).map(x=>x.id===it.id?{...x,checked:!x.checked}:x)}))}
+                                            style={{...ck(it.checked,c.dt,14),marginTop:1,flexShrink:0}}>{it.checked&&<Tk s={8}/>}</div>
+                                          {it.urgent&&<span style={{fontSize:9,color:"#DC2626",fontWeight:800,flexShrink:0}}>!</span>}
+                                          <span style={{fontSize:10,color:it.checked?"#CBD5E1":"#334155",textDecoration:it.checked?"line-through":"none",lineHeight:1.3,wordBreak:"break-all"}}>{it.text.slice(0,10)}</span>
+                                        </div>
+                                      ))}
+                                      {its.length===0&&<div style={{width:14,height:14,borderRadius:3,border:"1px solid #E2E8F0",margin:"3px 0"}}/>}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                              {/* Pending confirms row (if any) */}
+                              {filteredPats.some(p=>(pendingConfirms[p.id]||[]).length>0) && (
+                                <tr style={{background:"#F0F9FF"}}>
+                                  <td style={{...stickyL,width:36,textAlign:"center",fontWeight:700,fontSize:9,color:"#0369A1",
+                                    background:"#E0F2FE",borderRight:"2px solid #BAE6FD",borderTop:"2px solid #BAE6FD",padding:"4px 2px",lineHeight:1.3}}>
+                                    🔍<br/>結果
+                                  </td>
+                                  {filteredPats.map(p => {
+                                    const pc = pendingConfirms[p.id]||[];
+                                    return (
+                                      <td key={p.id} style={{...cellSt(p),borderTop:"2px solid #BAE6FD"}}>
+                                        {pc.map((item,i) => (
+                                          <div key={i} style={{fontSize:10,color:"#0369A1",padding:"2px 0",lineHeight:1.3}}>
+                                            {item.icon} {item.name.slice(0,8)}{item.day?<span style={{color:"#0EA5E9"}}> {item.day}d</span>:null}
+                                          </div>
+                                        ))}
+                                        {pc.length===0&&<div style={{width:14,height:14,borderRadius:3,border:"1px solid #E2E8F0",margin:"3px 0"}}/>}
+                                      </td>
+                                    );
+                                  })}
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     );
                   })()}
