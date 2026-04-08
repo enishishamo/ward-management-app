@@ -500,9 +500,13 @@ export default function App() {
   };
   const confirmDischarge = (pid, followUpDate) => {
     const p = patients.find(x => x.id === pid); if (!p) return;
-    setDischarged(pr => [...pr, {...p, dischargeDate: today, followUp: followUpDate||""}]);
+    const pendingDischTasks = DISCH_CL.filter(x => !dCL[pid+"_d_"+x]);
+    setDischarged(pr => [...pr, {...p, dischargeDate: today, followUp: followUpDate||"", pendingDischTasks}]);
     setPatients(pr => pr.filter(x => x.id !== pid));
     setDischargeModal(null);
+  };
+  const markDischTask = (pid, task) => {
+    setDischarged(pr => pr.map(p => p.id === pid ? {...p, pendingDischTasks: (p.pendingDischTasks||[]).filter(t => t !== task)} : p));
   };
   const deletePat = pid => {
     setPatients(pr => pr.filter(x => x.id !== pid));
@@ -805,10 +809,10 @@ export default function App() {
                 <div onClick={() => setDCL(pr => ({...pr,[k]:!pr[k]}))} style={{...ck(on,c.dt,9),cursor:"pointer"}}>{on && <Tk s={4}/>}</div>
                 <span style={{fontSize:7,cursor:"pointer"}} onClick={() => setDCL(pr => ({...pr,[k]:!pr[k]}))}>{x}</span>
                 {x === "外来F/U" && on && (
-                  <select value={fuVal} onClick={e => e.stopPropagation()} onChange={e => setDCL(pr => ({...pr,[k+"_val"]:e.target.value}))}
-                    style={{fontSize:7,border:"1px solid #E2E8F0",borderRadius:2,padding:"0 2px",background:"white",outline:"none"}}>
-                    <option value="">—</option><option value="あり">あり</option><option value="なし">なし</option>
-                  </select>
+                  <input type="text" placeholder="M/D" value={fuVal}
+                    onClick={e => e.stopPropagation()}
+                    onChange={e => setDCL(pr => ({...pr,[k+"_val"]:e.target.value}))}
+                    style={{fontSize:7,border:"1px solid #E2E8F0",borderRadius:2,padding:"0 2px",width:36,outline:"none"}}/>
                 )}
               </div>
             );
@@ -1108,6 +1112,32 @@ export default function App() {
                             </div>
                           );
                         })}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Pending discharge tasks */}
+                  {(() => {
+                    const pendingPats = discharged.filter(p => (p.pendingDischTasks||[]).length > 0);
+                    if (!pendingPats.length) return null;
+                    return (
+                      <div style={{background:"#FFF7ED",border:"1px solid #FED7AA",borderRadius:10,padding:"8px 12px",marginBottom:8}}>
+                        <div style={{fontSize:11,fontWeight:700,color:"#92400E",marginBottom:6}}>📋 退院後の未完了タスク</div>
+                        {pendingPats.map(p => (
+                          <div key={p.id} style={{marginBottom:6}}>
+                            <div style={{fontSize:11,fontWeight:600,color:"#78350F",marginBottom:4}}>{p.name}（{p.dischargeDate}退院）</div>
+                            <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                              {(p.pendingDischTasks||[]).map(task => (
+                                <div key={task} onClick={() => markDischTask(p.id, task)}
+                                  style={{display:"flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:6,
+                                    background:"white",border:"1px solid #FED7AA",cursor:"pointer",fontSize:11,userSelect:"none"}}>
+                                  <div style={{width:12,height:12,borderRadius:3,border:"2px solid #F97316",flexShrink:0}}/>
+                                  {task}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     );
                   })()}
