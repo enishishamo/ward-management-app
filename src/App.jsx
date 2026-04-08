@@ -1405,21 +1405,35 @@ export default function App() {
                           </div>
                         )}
 
-                        {/* Karte */}
-                        <div style={{padding:"10px 14px"}}>
-                          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
-                            <div onClick={() => setKarte(pr => ({...pr,[p.id]:{...pr[p.id],checked:!k.checked}}))} style={ck(k.checked,c.dt,22)}>
-                              {k.checked && <Tk s={13}/>}
-                            </div>
-                            <span style={{fontSize:13,fontWeight:700,color:k.checked?"#22C55E":"#0369A1"}}>📝 カルテ記録</span>
-                          </div>
-                          <textarea value={k.memo} onChange={e => setKarte(pr => ({...pr,[p.id]:{...pr[p.id],memo:e.target.value}}))}
-                            placeholder="メモ..." rows={2}
-                            style={{width:"100%",fontSize:13,border:"1px solid #E2E8F0",borderRadius:8,padding:"8px 10px",resize:"vertical",fontFamily:"inherit",outline:"none",background:"#FAFBFC",boxSizing:"border-box"}}/>
-                        </div>
                       </div>
                     );
                   })}
+
+                  {/* Karte (always visible) */}
+                  <div style={{background:"white",borderRadius:14,marginBottom:12,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",background:"#EFF6FF",borderBottom:"1px solid #DBEAFE"}}>
+                      <span style={{fontSize:16}}>📝</span>
+                      <span style={{fontSize:13,fontWeight:700,color:"#1E40AF"}}>カルテ記録</span>
+                    </div>
+                    {filteredPats.map(p => {
+                      const k = curKarte[p.id] || {checked:false,memo:""};
+                      const c = COL[p.color];
+                      return (
+                        <div key={p.id} style={{padding:"8px 14px",borderBottom:"1px solid #F1F5F9"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                            <div onClick={() => setKarte(pr => ({...pr,[p.id]:{...pr[p.id],checked:!k.checked}}))} style={ck(k.checked,c.dt,20)}>
+                              {k.checked && <Tk s={12}/>}
+                            </div>
+                            <span style={{fontSize:12,fontWeight:700,color:c.tx}}>{p.name.split(" ")[0]}</span>
+                            {k.checked && <span style={{fontSize:11,color:"#22C55E",fontWeight:700}}>済み</span>}
+                          </div>
+                          <textarea value={k.memo||""} onChange={e => setKarte(pr => ({...pr,[p.id]:{...pr[p.id],memo:e.target.value}}))}
+                            placeholder="メモ..." rows={2}
+                            style={{width:"100%",fontSize:13,border:"1px solid #E2E8F0",borderRadius:8,padding:"8px 10px",resize:"vertical",fontFamily:"inherit",outline:"none",background:"#FAFBFC",boxSizing:"border-box"}}/>
+                        </div>
+                      );
+                    })}
+                  </div>
 
                   {/* Consults & Study list (both modes) */}
                   {/* Consults (mobile) */}
