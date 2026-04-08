@@ -19,6 +19,7 @@ const PRESETS = [
   {id:"msw_call",icon:"👩‍⚕️",label:"MSWに電話",type:"msw_call"},
   {id:"family_call",icon:"📞",label:"家族に電話",type:"family_call"},
   {id:"consult",icon:"📨",label:"他科コンサルト",type:"consult"},
+  {id:"drip",icon:"💉",label:"点滴確認",type:"drip_main"},
   {id:"meds",icon:"💊",label:"投薬確認"},
   {id:"free",icon:"✏️",label:"自由記載",type:"free"}
 ];
@@ -60,7 +61,7 @@ const isTd = d => dk(d) === dk(new Date());
 const tdL = () => fD(new Date());
 const pMD = s => { if (!s) return null; const p = s.split("/"); return p.length === 2 ? new Date(2026, parseInt(p[0])-1, parseInt(p[1])) : null; };
 const dB = (a, b) => { const s = pMD(a), d = pMD(b); return (s && d) ? Math.round((d - s) / 86400000) + 1 : null; };
-const cCr = (age, wt, cr, f) => (!cr || cr <= 0 || !wt) ? null : Math.round(((140-age)*wt/(72*cr))*(f?0.85:1)*10)/10;
+const cCr = (age, wt, cr, f) => { const a=parseFloat(age),w=parseFloat(wt),c=parseFloat(cr); if(!c||c<=0||!w||isNaN(a)||a<=0) return null; return Math.round(((140-a)*w/(72*c))*(f?0.85:1)*10)/10; };
 const bSp = (s, e, d) => { const a = pMD(s), b = pMD(e), c = pMD(d); return a && b && c && c >= a && c <= b; };
 const addDw = s => {
   if (!s) return "";
@@ -443,6 +444,7 @@ export default function App() {
   const [todayView, setTodayView] = useState("summary"); // "summary" | "cards"
   const [showAddAM, setShowAddAM] = useState({});
   const [showAddPM, setShowAddPM] = useState({});
+  const [expLabMobile, setExpLabMobile] = useState({});
   const [dischargeModal, setDischargeModal] = useState(null); // {patient}
   const [panel, setPanel] = useState("schedule");
   const [filterDoctor, setFilterDoctor] = useState("all");
@@ -524,7 +526,7 @@ export default function App() {
     return {...o, endDate: ds}; // 開始日以降→終了日を延長/短縮
   })}));
   const togDot = (pid, oid, ds) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => { if (o.id !== oid) return o; const d = o.dates||[]; return {...o, dates: d.includes(ds) ? d.filter(x => x !== ds) : [...d, ds].sort()}; })}));
-  const addOrd = (pid, type) => { const bar = ["drip_main","med","abx"].includes(type); setOrders(p => ({...p, [pid]: [...(p[pid]||[]), {id:Date.now(),type,name:"",dates:bar?undefined:[],startDate:bar?today:undefined,endDate:bar?today:undefined,...(type.startsWith("culture")?{resultDate:""}:{})}]})); };
+  const addOrd = (pid, type) => { setOrders(p => ({...p, [pid]: [...(p[pid]||[]), {id:Date.now(),type,name:"",dates:type==="abx"?undefined:[],...(type.startsWith("culture")?{resultDate:""}:{})}]})); };
   const rmOrd = (pid, oid) => setOrders(p => ({...p, [pid]: (p[pid]||[]).filter(o => o.id !== oid)}));
   const updNm = (pid, oid, n) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => o.id === oid ? {...o, name: n} : o)}));
   const markCulDone = (pid, oid) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => o.id === oid ? {...o, resultDate: today} : o)}));
@@ -1315,14 +1317,37 @@ export default function App() {
                         <div style={{padding:"8px 14px",borderBottom:"1px solid #F1F5F9"}}>
                           <div style={{fontSize:11,fontWeight:700,color:"#3B82F6",marginBottom:4}}>AM</div>
                           {amTasks.map(({key, cell}) => (
-                            <div key={key} style={{display:"flex",alignItems:"center",gap:10,padding:"5px 0",opacity:cell.checked?0.45:1}}>
-                              <div onClick={() => compT(key)} style={ck(cell.checked,c.dt,22)}>{cell.checked && <Tk s={13}/>}</div>
-                              {cell.type === "free"
-                                ? <input value={cell.text||""} onChange={e => setAmC(prev => ({...prev,[key]:{...prev[key]||emptyCell(),text:e.target.value}}))}
-                                    placeholder="メモ..." style={{fontSize:14,flex:1,border:"none",outline:"none",background:"transparent",fontFamily:"inherit",textDecoration:cell.checked?"line-through":"none"}}/>
-                                : <span style={{fontSize:14,flex:1,textDecoration:cell.checked?"line-through":"none"}}>{cell.icon} {cell.label||cell.text}</span>
-                              }
-                              <button onClick={() => setAmC(prev => ({...prev,[key]:emptyCell()}))} style={{border:"none",background:"transparent",color:"#CBD5E1",fontSize:16,cursor:"pointer",padding:"0 4px"}}>✕</button>
+                            <div key={key} style={{padding:"4px 0",borderBottom:"1px solid #F8FAFC"}}>
+                              <div style={{display:"flex",alignItems:"center",gap:10,opacity:cell.checked?0.45:1}}>
+                                <div onClick={() => compT(key)} style={ck(cell.checked,c.dt,22)}>{cell.checked && <Tk s={13}/>}</div>
+                                {cell.type === "free"
+                                  ? <input value={cell.text||""} onChange={e => setAmC(prev => ({...prev,[key]:{...prev[key]||emptyCell(),text:e.target.value}}))}
+                                      placeholder="メモ..." style={{fontSize:14,flex:1,border:"none",outline:"none",background:"transparent",fontFamily:"inherit",textDecoration:cell.checked?"line-through":"none"}}/>
+                                  : <span style={{fontSize:14,flex:1,textDecoration:cell.checked?"line-through":"none"}}>{cell.icon} {cell.label||cell.text}</span>
+                                }
+                                {cell.type === "lab" && (
+                                  <button onClick={() => setExpLabMobile(prev => ({...prev,[key]:!prev[key]}))}
+                                    style={{border:"1px solid #E2E8F0",background:"transparent",borderRadius:4,padding:"2px 6px",fontSize:11,color:"#64748B",cursor:"pointer"}}>
+                                    {expLabMobile[key] ? "▲" : "詳細"}
+                                  </button>
+                                )}
+                                <button onClick={() => setAmC(prev => ({...prev,[key]:emptyCell()}))} style={{border:"none",background:"transparent",color:"#CBD5E1",fontSize:16,cursor:"pointer",padding:"0 4px"}}>✕</button>
+                              </div>
+                              {cell.type === "lab" && expLabMobile[key] && (
+                                <div style={{marginTop:6,paddingLeft:32}}>
+                                  {LAB_F.map(f => {
+                                    const v = (cell.detail&&cell.detail[f])||{checked:false,memo:""};
+                                    return (
+                                      <div key={f} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 0"}}>
+                                        <div onClick={() => setAmC(prev => ({...prev,[key]:{...cell,detail:{...cell.detail,[f]:{...v,checked:!v.checked}}}}))} style={ck(v.checked,c.dt,18)}>{v.checked&&<Tk s={10}/>}</div>
+                                        <span style={{fontSize:12,fontWeight:600,color:"#64748B",width:52,flexShrink:0}}>{f}</span>
+                                        <input value={v.memo||""} onChange={e => setAmC(prev => ({...prev,[key]:{...cell,detail:{...cell.detail,[f]:{...v,memo:e.target.value}}}}))}
+                                          placeholder="—" style={{fontSize:12,flex:1,border:"none",borderBottom:"1px solid #E2E8F0",outline:"none",background:"transparent",fontFamily:"inherit"}}/>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
                           ))}
                           {amTasks.length < AM && (
@@ -1356,14 +1381,37 @@ export default function App() {
                         <div style={{padding:"8px 14px",borderBottom:"1px solid #F1F5F9"}}>
                           <div style={{fontSize:11,fontWeight:700,color:"#8B5CF6",marginBottom:4}}>PM</div>
                           {pmTasks.map(({key, cell}) => (
-                            <div key={key} style={{display:"flex",alignItems:"center",gap:10,padding:"5px 0",opacity:cell.checked?0.45:1}}>
-                              <div onClick={() => compT(key)} style={ck(cell.checked,c.dt,22)}>{cell.checked && <Tk s={13}/>}</div>
-                              {cell.type === "free"
-                                ? <input value={cell.text||""} onChange={e => setPmC(prev => ({...prev,[key]:{...prev[key]||emptyCell(),text:e.target.value}}))}
-                                    placeholder="メモ..." style={{fontSize:14,flex:1,border:"none",outline:"none",background:"transparent",fontFamily:"inherit",textDecoration:cell.checked?"line-through":"none"}}/>
-                                : <span style={{fontSize:14,flex:1,textDecoration:cell.checked?"line-through":"none"}}>{cell.icon} {cell.label||cell.text}</span>
-                              }
-                              <button onClick={() => setPmC(prev => ({...prev,[key]:emptyCell()}))} style={{border:"none",background:"transparent",color:"#CBD5E1",fontSize:16,cursor:"pointer",padding:"0 4px"}}>✕</button>
+                            <div key={key} style={{padding:"4px 0",borderBottom:"1px solid #F8FAFC"}}>
+                              <div style={{display:"flex",alignItems:"center",gap:10,opacity:cell.checked?0.45:1}}>
+                                <div onClick={() => compT(key)} style={ck(cell.checked,c.dt,22)}>{cell.checked && <Tk s={13}/>}</div>
+                                {cell.type === "free"
+                                  ? <input value={cell.text||""} onChange={e => setPmC(prev => ({...prev,[key]:{...prev[key]||emptyCell(),text:e.target.value}}))}
+                                      placeholder="メモ..." style={{fontSize:14,flex:1,border:"none",outline:"none",background:"transparent",fontFamily:"inherit",textDecoration:cell.checked?"line-through":"none"}}/>
+                                  : <span style={{fontSize:14,flex:1,textDecoration:cell.checked?"line-through":"none"}}>{cell.icon} {cell.label||cell.text}</span>
+                                }
+                                {cell.type === "lab" && (
+                                  <button onClick={() => setExpLabMobile(prev => ({...prev,[key]:!prev[key]}))}
+                                    style={{border:"1px solid #E2E8F0",background:"transparent",borderRadius:4,padding:"2px 6px",fontSize:11,color:"#64748B",cursor:"pointer"}}>
+                                    {expLabMobile[key] ? "▲" : "詳細"}
+                                  </button>
+                                )}
+                                <button onClick={() => setPmC(prev => ({...prev,[key]:emptyCell()}))} style={{border:"none",background:"transparent",color:"#CBD5E1",fontSize:16,cursor:"pointer",padding:"0 4px"}}>✕</button>
+                              </div>
+                              {cell.type === "lab" && expLabMobile[key] && (
+                                <div style={{marginTop:6,paddingLeft:32}}>
+                                  {LAB_F.map(f => {
+                                    const v = (cell.detail&&cell.detail[f])||{checked:false,memo:""};
+                                    return (
+                                      <div key={f} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 0"}}>
+                                        <div onClick={() => setPmC(prev => ({...prev,[key]:{...cell,detail:{...cell.detail,[f]:{...v,checked:!v.checked}}}}))} style={ck(v.checked,c.dt,18)}>{v.checked&&<Tk s={10}/>}</div>
+                                        <span style={{fontSize:12,fontWeight:600,color:"#64748B",width:52,flexShrink:0}}>{f}</span>
+                                        <input value={v.memo||""} onChange={e => setPmC(prev => ({...prev,[key]:{...cell,detail:{...cell.detail,[f]:{...v,memo:e.target.value}}}}))}
+                                          placeholder="—" style={{fontSize:12,flex:1,border:"none",borderBottom:"1px solid #E2E8F0",outline:"none",background:"transparent",fontFamily:"inherit"}}/>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
                           ))}
                           {pmTasks.length < PM_R && (
