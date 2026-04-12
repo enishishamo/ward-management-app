@@ -32,7 +32,7 @@ const R_LABS = [
 ];
 const ADMIT_CL = ["同意書(DNAR)","同意書(身体拘束)","同意書(その他)","病名","入院決定",
   "入院カルテ1号紙","複合セット・指示","他科依頼","入院計画書","IC記録",
-  "持参薬処方","点滴","内服薬","検査","追加検査","必要時","栄養計画"];
+  "持参薬処方","点滴","内服薬","検査","追加検査","必要時","栄養計画","かかりつけ診療情報提供書"];
 const DISCH_CL = ["退院決定","退院計画書","退院時処方","外来F/U","情報診療提供書","退院サマリ"];
 const DEFAULT_CATS = [
   {type:"abx",icon:"🦠",label:"抗菌薬",isBar:true,showDay:true},
@@ -61,7 +61,18 @@ const isTd = d => dk(d) === dk(new Date());
 const tdL = () => fD(new Date());
 const pMD = s => { if (!s) return null; const p = s.split("/"); return p.length === 2 ? new Date(2026, parseInt(p[0])-1, parseInt(p[1])) : null; };
 const dB = (a, b) => { const s = pMD(a), d = pMD(b); return (s && d) ? Math.round((d - s) / 86400000) + 1 : null; };
-const cCr = (age, wt, cr, f) => { const a=parseFloat(age),w=parseFloat(wt),c=parseFloat(cr); if(!c||c<=0||!w||isNaN(a)||a<=0) return null; return Math.round(((140-a)*w/(72*c))*(f?0.85:1)*10)/10; };
+// Horio式 (日本人向けCCr推算式)
+// 男性: ((33 - 0.065×age - 0.493×BMI) × weight) / (Cr × 14.4)
+// 女性: ((21 - 0.052×age - 0.202×BMI) × weight) / (Cr × 14.4)
+const cCr = (age, wt, cr, f, ht) => {
+  const a=parseFloat(age),w=parseFloat(wt),c=parseFloat(cr),h=parseFloat(ht);
+  if(!c||c<=0||!w||!h||h<=0||isNaN(a)||a<=0) return null;
+  const bmi = w / ((h/100) * (h/100));
+  const num = f ? (21 - 0.052*a - 0.202*bmi) * w : (33 - 0.065*a - 0.493*bmi) * w;
+  const den = c * 14.4;
+  const v = num / den;
+  return v > 0 ? Math.round(v*10)/10 : null;
+};
 const bSp = (s, e, d) => { const a = pMD(s), b = pMD(e), c = pMD(d); return a && b && c && c >= a && c <= b; };
 const addDw = s => {
   if (!s) return "";
@@ -201,8 +212,9 @@ function PatientModal({onSave, onDelete, onClose, edit, doctors, usedColors}) {
               </div>
             </div>
           </div>
-          {/* 体重・Cr */}
+          {/* 身長・体重・Cr */}
           <div style={{display:"flex",gap:8}}>
+            <div style={{flex:1}}><Lbl>身長 (cm)</Lbl><input value={f.height||""} onChange={e => sv("height",e.target.value)} placeholder="165" style={I} type="number"/></div>
             <div style={{flex:1}}><Lbl>体重 (kg)</Lbl><input value={f.weight} onChange={e => sv("weight",e.target.value)} placeholder="60" style={I} type="number"/></div>
             <div style={{flex:1}}><Lbl>Cr</Lbl><input value={f.cr} onChange={e => sv("cr",e.target.value)} placeholder="0.8" style={I} type="number" step="0.1"/></div>
           </div>
@@ -238,7 +250,7 @@ function PatientModal({onSave, onDelete, onClose, edit, doctors, usedColors}) {
         <div style={{padding:"14px 20px",borderTop:"1px solid #E2E8F0",display:"flex",flexDirection:"column",gap:8,flexShrink:0}}>
           <div style={{display:"flex",gap:8}}>
             <button onClick={onClose} style={{flex:1,border:"1px solid #E2E8F0",background:"white",borderRadius:10,padding:"10px",fontSize:13,cursor:"pointer",fontWeight:600}}>キャンセル</button>
-            <button onClick={() => { if (!f.name||!f.room) return; onSave({...f,id:edit?.id||"p_"+Date.now(),age:parseInt(f.age)||0,weight:parseFloat(f.weight)||0,cr:parseFloat(f.cr)||0}); onClose(); }}
+            <button onClick={() => { if (!f.name||!f.room) return; onSave({...f,id:edit?.id||"p_"+Date.now(),age:parseInt(f.age)||0,height:parseFloat(f.height)||0,weight:parseFloat(f.weight)||0,cr:parseFloat(f.cr)||0}); onClose(); }}
               style={{flex:2,border:"none",background:"#3B82F6",color:"white",borderRadius:10,padding:"10px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
               {edit ? "更新" : "登録"}
             </button>
@@ -444,6 +456,7 @@ export default function App() {
   const [todayView, setTodayView] = useState("summary"); // "summary" | "cards"
   const [showAddAM, setShowAddAM] = useState({});
   const [showAddPM, setShowAddPM] = useState({});
+  const [summaryAddMenu, setSummaryAddMenu] = useState(null); // {taskKey, pid, pfx}
   const [expLabMobile, setExpLabMobile] = useState({});
   const [dischargeModal, setDischargeModal] = useState(null); // {patient}
   const [panel, setPanel] = useState("schedule");
@@ -525,7 +538,7 @@ export default function App() {
     if (d < s) return {...o, startDate: ds}; // 開始日より前→開始日を移動
     return {...o, endDate: ds}; // 開始日以降→終了日を延長/短縮
   })}));
-  const togDot = (pid, oid, ds) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => { if (o.id !== oid) return o; const d = o.dates||[]; return {...o, dates: d.includes(ds) ? d.filter(x => x !== ds) : [...d, ds].sort()}; })}));
+  const togDot = (pid, oid, ds, noRemove) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => { if (o.id !== oid) return o; const d = o.dates||[]; if (d.includes(ds)) { if (noRemove) return o; return {...o, dates: d.filter(x => x !== ds)}; } return {...o, dates: [...d, ds].sort()}; })}));
   const addOrd = (pid, type) => { setOrders(p => ({...p, [pid]: [...(p[pid]||[]), {id:Date.now(),type,name:"",dates:type==="abx"?undefined:[],...(type.startsWith("culture")?{resultDate:""}:{})}]})); };
   const rmOrd = (pid, oid) => setOrders(p => ({...p, [pid]: (p[pid]||[]).filter(o => o.id !== oid)}));
   const updNm = (pid, oid, n) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => o.id === oid ? {...o, name: n} : o)}));
@@ -622,6 +635,15 @@ export default function App() {
   const setPmC = fn => setTaskDB(prev => { const d = prev[selDateStr] || mkEmptyDay(patients, selDateStr); return {...prev, [selDateStr]: {...d, pm: typeof fn === "function" ? fn(d.pm) : fn}}; });
   const setVitals = fn => setTaskDB(prev => { const d = prev[selDateStr] || mkEmptyDay(patients, selDateStr); return {...prev, [selDateStr]: {...d, vitals: typeof fn === "function" ? fn(d.vitals) : fn}}; });
   const setKarte = fn => setTaskDB(prev => { const d = prev[selDateStr] || mkEmptyDay(patients, selDateStr); return {...prev, [selDateStr]: {...d, karte: typeof fn === "function" ? fn(d.karte) : fn}}; });
+  const swapTask = (pfx, slotA, slotB, pid) => {
+    const setC = pfx === "am" ? setAmC : setPmC;
+    const max = pfx === "am" ? AM : PM_R;
+    if (slotA < 0 || slotB < 0 || slotA >= max || slotB >= max) return;
+    setC(prev => {
+      const kA = pfx+slotA+"_"+pid, kB = pfx+slotB+"_"+pid;
+      return {...prev, [kA]: prev[kB]||emptyCell(), [kB]: prev[kA]||emptyCell()};
+    });
+  };
   const isPast = pMD(selDateStr) < pMD(today);
   const isFuture = pMD(selDateStr) > pMD(today);
 
@@ -632,7 +654,7 @@ export default function App() {
       (orders[p.id]||[]).forEach(o => {
         if (o.type?.startsWith("culture") && o.dates?.[0] && (!o.resultDate || o.resultDate === "")) {
           const d = dB(o.dates[0], selDateStr);
-          if (d && d >= 1) items.push({type:"culture",icon:"🧫",name:o.name,day:d,orderId:o.id});
+          if (d && d >= 1) items.push({type:"culture",icon:"🧫",name:o.specimen||o.name||"培養",day:d,orderId:o.id});
         }
         if (o.type === "img" && o.dates?.length > 0 && !o.reportConfirmed)
           items.push({type:"img",icon:"📷",name:o.name,orderId:o.id});
@@ -641,6 +663,52 @@ export default function App() {
     });
     return pc;
   }, [orders, sortedPats, selDateStr]);
+
+  // Order confirmation status: computed from orders
+  const orderStatus = useMemo(() => {
+    const st = {};
+    const todayD = pMD(today);
+    const tmrw = new Date(todayD); tmrw.setDate(tmrw.getDate() + 1);
+    sortedPats.forEach(p => {
+      const po = orders[p.id] || [];
+      const getMaxDate = type => {
+        const dates = po.filter(o => o.type === type && o.name).flatMap(o => o.dates || []);
+        const parsed = dates.map(d => pMD(d)).filter(Boolean);
+        return parsed.length ? parsed.sort((a,b) => b-a)[0] : null;
+      };
+      const medMax = getMaxDate("med");
+      const dripMax = getMaxDate("drip_main");
+      const labDates = po.filter(o => o.type === "lab" && o.name).flatMap(o => o.dates || []);
+      const nextLab = labDates.map(d => pMD(d)).filter(d => d && d >= todayD).sort((a,b) => a-b)[0] || null;
+      const urgency = d => !d ? "none" : d < todayD ? "expired" : d.getTime() === todayD.getTime() ? "today" : d.getTime() === tmrw.getTime() ? "tomorrow" : "ok";
+      st[p.id] = {
+        med: { date: medMax, dateStr: medMax ? fD(medMax) : null, level: urgency(medMax) },
+        drip: { date: dripMax, dateStr: dripMax ? fD(dripMax) : null, level: urgency(dripMax) },
+        lab: { date: nextLab, dateStr: nextLab ? fD(nextLab) : null, level: !nextLab ? "none" : "ok" }
+      };
+    });
+    return st;
+  }, [orders, sortedPats, today]);
+
+  const extendOrderTo = (pid, type, targetDateStr) => {
+    setOrders(prev => {
+      const po = prev[pid] || [];
+      const oi = po.findIndex(o => o.type === type && o.name);
+      if (oi < 0) return prev;
+      const order = po[oi];
+      const dates = [...(order.dates || [])];
+      const parsed = dates.map(d => pMD(d)).filter(Boolean);
+      const maxD = parsed.length ? new Date(parsed.sort((a,b) => b-a)[0]) : new Date(pMD(today));
+      const target = pMD(targetDateStr);
+      if (!target || target <= maxD) return prev;
+      const cur = new Date(maxD); cur.setDate(cur.getDate() + 1);
+      while (cur <= target) { const s = fD(cur); if (!dates.includes(s)) dates.push(s); cur.setDate(cur.getDate() + 1); }
+      dates.sort();
+      const newOrders = [...po]; newOrders[oi] = {...order, dates};
+      return {...prev, [pid]: newOrders};
+    });
+  };
+  const [orderExtMenu, setOrderExtMenu] = useState(null); // {pid, type}
 
   const [consults, setConsults] = useState(() => loadLS("ward_consults_v2", {}));
   useEffect(() => { saveLS("ward_consults_v2", consults); }, [consults]);
@@ -699,7 +767,7 @@ export default function App() {
   // Gantt row for a single patient
   const renderGanttPatient = p => {
     const c = COL[p.color], po = orders[p.id]||[], isE = expP[p.id];
-    const cv = cCr(p.age, p.weight, p.cr, p.sex === "F");
+    const cv = cCr(p.age, p.weight, p.cr, p.sex === "F", p.height);
     const rl = rLabs[p.id]||{};
     const fe = rl.fe?.value ? parseFloat(rl.fe.value) : null;
     const tibc = rl.tibc?.value ? parseFloat(rl.tibc.value) : null;
@@ -723,7 +791,7 @@ export default function App() {
           </div>
           <div style={{paddingLeft:17,fontSize:8,color:"#64748B",lineHeight:1.5}}>
             {p.room}|{p.age}{p.sex==="F"?"♀":"♂"}|{p.diagnosis}<br/>
-            CCr:<b style={{color:cv&&cv<30?"#DC2626":"#334155"}}>{cv||"—"}</b> Wt:{p.weight} Cr:{p.cr}<br/>
+            CCr:<b style={{color:cv&&cv<30?"#DC2626":"#334155"}}>{cv||"—"}</b> Ht:{p.height||"—"} Wt:{p.weight} Cr:{p.cr}<br/>
             家族:{p.family}|介護:{p.careLevel}|TEL:<b style={{color:"#0369A1"}}>{p.lastFamilyCall}</b>
           </div>
           {isE && (
@@ -775,6 +843,34 @@ export default function App() {
           return (
             <td key={di} style={{padding:"2px 1px",borderBottom:"1px solid "+c.bd+"40",borderLeft:"1px solid #F1F5F9",background:t?"#EFF6FF30":"transparent",textAlign:"center",verticalAlign:"top"}}>
               {m.map((x, i) => <div key={i} style={{fontSize:7,background:x.bg,color:x.co,borderRadius:3,padding:"1px 2px",fontWeight:800,marginBottom:1}}>{x.l}</div>)}
+            </td>
+          );
+        })}
+      </tr>
+    );
+
+    // Order confirmation row in gantt
+    if (isE) rows.push(
+      <tr key={p.id+"_odr"}>
+        <td style={{padding:"1px 6px 1px 20px",borderBottom:"1px solid "+c.bd+"30",background:c.bg+"30",fontSize:8,color:"#0D9488",fontWeight:700}}>
+          📋 オーダー
+        </td>
+        {wk.map((d, di) => {
+          const ds = fD(d), t = isTd(d), dd = pMD(ds);
+          const po = orders[p.id] || [];
+          const hasMed = po.some(o => o.type==="med" && o.name && (o.dates||[]).includes(ds));
+          const hasDrip = po.some(o => o.type==="drip_main" && o.name && (o.dates||[]).includes(ds));
+          const hasLab = po.some(o => o.type==="lab" && o.name && (o.dates||[]).includes(ds));
+          // Check if this is the last date for med/drip
+          const os = orderStatus[p.id] || {};
+          const isLastMed = os.med?.dateStr === ds;
+          const isLastDrip = os.drip?.dateStr === ds;
+          return (
+            <td key={di} style={{padding:"1px",borderBottom:"1px solid "+c.bd+"30",borderLeft:"1px solid #F1F5F9",background:t?"#EFF6FF30":"transparent",textAlign:"center",fontSize:7,lineHeight:1.4}}>
+              {hasMed && <span style={{color:isLastMed?"#DC2626":"#166534",fontWeight:700}}>💊</span>}
+              {hasDrip && <span style={{color:isLastDrip?"#DC2626":"#166534",fontWeight:700}}>💉</span>}
+              {hasLab && <span style={{color:"#0369A1",fontWeight:700}}>🩸</span>}
+              {!hasMed && !hasDrip && !hasLab && <span style={{color:"#E2E8F0"}}>·</span>}
             </td>
           );
         })}
@@ -919,7 +1015,7 @@ export default function App() {
                       const isR = it.resultDate === ds;
                       const imgOk = cat.type === "img" && it.reportConfirmed;
                       return (
-                        <div onClick={() => togDot(p.id, it.id, ds)}
+                        <div onClick={() => togDot(p.id, it.id, ds, isCul)}
                           style={{cursor:"pointer",height:18,display:"flex",alignItems:"center",justifyContent:"center"}}>
                           {hd2 ? <div style={{width:12,height:12,borderRadius:"50%",background:imgOk?"#22C55E":c.dt,display:"flex",alignItems:"center",justifyContent:"center"}}>
                             {cd && <span style={{fontSize:5,color:"white",fontWeight:800}}>{cd}</span>}
@@ -945,7 +1041,7 @@ export default function App() {
           <td colSpan={8} style={{padding:"3px 6px 4px 22px",borderBottom:"2px solid "+c.bd+"40"}}>
             <div onClick={() => setRlOpen(pr => ({...pr,[p.id]:!pr[p.id]}))}
               style={{fontSize:8,fontWeight:700,color:"#6D28D9",marginBottom:2,cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>
-              <Ch open={rlOpen[p.id]}/><span>📋 ルーチン検査</span>
+              <Ch open={rlOpen[p.id]}/><span>📋 よく使う検査</span>
               {tsat != null && <span style={{fontWeight:400,color:"#64748B"}}> TSAT:<b style={{color:tsat<20?"#DC2626":"#334155"}}>{tsat}%</b></span>}
               {rpi != null && <span style={{fontWeight:400,color:"#64748B"}}> RPI:<b style={{color:rpi<2?"#DC2626":"#334155"}}>{rpi}</b></span>}
             </div>
@@ -1073,7 +1169,7 @@ export default function App() {
 
                   {/* View mode toggle */}
                   <div style={{display:"flex",background:"#F1F5F9",borderRadius:8,padding:3,marginBottom:8,gap:2}}>
-                    {[["summary","📋 サマリー"],["cards","🃏 カード"]].map(([mode,label]) => (
+                    {[["summary","📋 一覧"],["cards","👤 詳細"]].map(([mode,label]) => (
                       <button key={mode} onClick={() => setTodayView(mode)}
                         style={{flex:1,border:"none",borderRadius:6,padding:"6px 0",fontSize:12,fontWeight:700,cursor:"pointer",
                           background:todayView===mode?"white":"transparent",
@@ -1092,7 +1188,7 @@ export default function App() {
                       const fd = pMD(p.followUp);
                       if (!fd) return false;
                       const diff = Math.round((fd - new Date(new Date().toDateString())) / 86400000);
-                      return diff >= -1 && diff <= 0;
+                      return diff >= 0 && diff <= 1;
                     }).sort((a,b) => { const da=pMD(a.followUp), db=pMD(b.followUp); return da-db; });
                     if (!fuPats.length) return null;
                     return (
@@ -1101,14 +1197,13 @@ export default function App() {
                         {fuPats.map(p => {
                           const fd = pMD(p.followUp);
                           const diff = Math.round((fd - new Date(new Date().toDateString())) / 86400000);
-                          const label = diff === 0 ? "本日" : diff < 0 ? `${Math.abs(diff)}日前` : `${diff}日後`;
+                          const label = diff === 0 ? "本日" : "明日";
                           const isToday = diff === 0;
-                          const isPast = diff < 0;
                           return (
                             <div key={p.id} style={{display:"flex",alignItems:"center",gap:8,padding:"3px 0",borderBottom:"1px solid #EDE9FE"}}>
                               <span style={{fontSize:11,fontWeight:700,padding:"1px 6px",borderRadius:4,
-                                background:isToday?"#7C3AED":isPast?"#94A3B8":"#DDD6FE",
-                                color:isToday||isPast?"white":"#6D28D9",flexShrink:0}}>{label}</span>
+                                background:isToday?"#7C3AED":"#DDD6FE",
+                                color:isToday?"white":"#6D28D9",flexShrink:0}}>{label}</span>
                               <span style={{fontSize:12,fontWeight:600,color:"#3730A3"}}>{p.name}</span>
                               <span style={{fontSize:10,color:"#6D28D9"}}>{p.followUp}（{p.diagnosis}）</span>
                             </div>
@@ -1146,12 +1241,17 @@ export default function App() {
 
                   {/* Timeline matrix (summary mode only) */}
                   {todayView === "summary" && (() => {
+                    const nPats = filteredPats.length;
+                    const colW = nPats <= 2 ? 160 : nPats <= 4 ? 120 : nPats <= 6 ? 100 : 85;
                     const stickyL = {position:"sticky",left:0,zIndex:2,background:"white"};
-                    const cellSt = (p) => ({padding:"4px 6px",borderBottom:"1px solid #F1F5F9",borderLeft:"1px solid #E2E8F0",verticalAlign:"top",minWidth:92,maxWidth:92});
-                    const TaskCell = ({taskKey, pid}) => {
+                    const cellSt = () => ({padding:"4px 6px",borderBottom:"1px solid #F1F5F9",borderLeft:"1px solid #E2E8F0",verticalAlign:"top",minWidth:colW,maxWidth:colW});
+                    const TaskCell = ({taskKey, pid, pfx, slot}) => {
                       const cell = amC[taskKey] || pmC[taskKey] || emptyCell();
                       const c = COL[filteredPats.find(p=>p.id===pid)?.color||"blue"];
-                      if (!cell.presetId) return <div style={{width:14,height:14,borderRadius:3,border:"1px solid #E2E8F0",margin:"3px 0"}}/>;
+                      if (!cell.presetId) return (
+                        <div onClick={() => setSummaryAddMenu(prev => prev?.taskKey===taskKey ? null : {taskKey, pid, pfx, slot})}
+                          style={{width:14,height:14,borderRadius:3,border:"1px dashed #CBD5E1",margin:"3px 0",cursor:"pointer",background:"#FAFBFC"}}/>
+                      );
                       return (
                         <div style={{display:"flex",alignItems:"flex-start",gap:4,padding:"2px 0"}}>
                           <div onClick={() => compT(taskKey)} style={{...ck(cell.checked,c.dt,14),marginTop:1,flexShrink:0}}>{cell.checked&&<Tk s={8}/>}</div>
@@ -1161,10 +1261,20 @@ export default function App() {
                         </div>
                       );
                     };
+                    const addPresetToSlot = (preset, taskKey, pid, pfx) => {
+                      const setC = pfx === "am" ? setAmC : setPmC;
+                      const newCell = {...emptyCell(),presetId:preset.id,icon:preset.icon,label:preset.label,type:preset.type};
+                      setC(prev => ({...prev,[taskKey]:newCell}));
+                      syncTaskToOrder(pid, newCell, emptyCell());
+                      setSummaryAddMenu(null);
+                    };
                     return (
-                      <div style={{borderRadius:12,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)",marginBottom:8}}>
+                      <div style={{borderRadius:12,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,0.06)",marginBottom:8,position:"relative"}}>
+                        {summaryAddMenu && (
+                          <div onClick={() => setSummaryAddMenu(null)} style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:50}}/>
+                        )}
                         <div style={{overflowX:"auto"}}>
-                          <table style={{borderCollapse:"collapse",tableLayout:"fixed",width:"max-content"}}>
+                          <table style={{borderCollapse:"collapse",tableLayout:"fixed",width:36+nPats*colW}}>
                             {/* Patient name header */}
                             <thead>
                               <tr>
@@ -1172,8 +1282,8 @@ export default function App() {
                                 {filteredPats.map(p => {
                                   const c = COL[p.color];
                                   return (
-                                    <th key={p.id} style={{background:c.hd,color:"white",padding:"6px 8px",fontSize:12,fontWeight:700,textAlign:"left",
-                                      width:92,borderBottom:"2px solid "+c.bd,borderLeft:"1px solid rgba(255,255,255,0.3)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                                    <th key={p.id} style={{background:c.hd,color:"white",padding:"6px 8px",fontSize:nPats<=4?12:10,fontWeight:700,textAlign:"left",
+                                      width:colW,borderBottom:"2px solid "+c.bd,borderLeft:"1px solid rgba(255,255,255,0.3)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
                                       {p.name.split(" ")[0]}
                                     </th>
                                   );
@@ -1191,8 +1301,18 @@ export default function App() {
                                     </td>
                                   )}
                                   {filteredPats.map(p => (
-                                    <td key={p.id} style={cellSt(p)}>
-                                      <TaskCell taskKey={"am"+ri+"_"+p.id} pid={p.id}/>
+                                    <td key={p.id} style={{...cellSt(),position:"relative"}}>
+                                      <TaskCell taskKey={"am"+ri+"_"+p.id} pid={p.id} pfx="am" slot={ri}/>
+                                      {summaryAddMenu?.taskKey === "am"+ri+"_"+p.id && (
+                                        <div style={{position:"absolute",top:"100%",left:0,zIndex:60,background:"white",border:"1px solid #E2E8F0",borderRadius:8,boxShadow:"0 4px 12px rgba(0,0,0,0.15)",padding:4,minWidth:130}}>
+                                          {PRESETS.map(pr2 => (
+                                            <button key={pr2.id} onClick={() => addPresetToSlot(pr2,"am"+ri+"_"+p.id,p.id,"am")}
+                                              style={{display:"block",width:"100%",textAlign:"left",border:"none",background:"transparent",borderRadius:4,padding:"5px 8px",fontSize:11,cursor:"pointer",color:"#334155",whiteSpace:"nowrap"}}>
+                                              {pr2.icon} {pr2.label}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      )}
                                     </td>
                                   ))}
                                 </tr>
@@ -1207,8 +1327,18 @@ export default function App() {
                                     </td>
                                   )}
                                   {filteredPats.map(p => (
-                                    <td key={p.id} style={cellSt(p)}>
-                                      <TaskCell taskKey={"pm"+ri+"_"+p.id} pid={p.id}/>
+                                    <td key={p.id} style={{...cellSt(),position:"relative"}}>
+                                      <TaskCell taskKey={"pm"+ri+"_"+p.id} pid={p.id} pfx="pm" slot={ri}/>
+                                      {summaryAddMenu?.taskKey === "pm"+ri+"_"+p.id && (
+                                        <div style={{position:"absolute",top:"100%",left:0,zIndex:60,background:"white",border:"1px solid #E2E8F0",borderRadius:8,boxShadow:"0 4px 12px rgba(0,0,0,0.15)",padding:4,minWidth:130}}>
+                                          {PRESETS.map(pr2 => (
+                                            <button key={pr2.id} onClick={() => addPresetToSlot(pr2,"pm"+ri+"_"+p.id,p.id,"pm")}
+                                              style={{display:"block",width:"100%",textAlign:"left",border:"none",background:"transparent",borderRadius:4,padding:"5px 8px",fontSize:11,cursor:"pointer",color:"#334155",whiteSpace:"nowrap"}}>
+                                              {pr2.icon} {pr2.label}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      )}
                                     </td>
                                   ))}
                                 </tr>
@@ -1271,8 +1401,9 @@ export default function App() {
                     const c = COL[p.color];
                     const v = curVitals[p.id] || {status:null,memo:""};
                     const k = curKarte[p.id] || {checked:false,memo:""};
-                    const amTasks = Array.from({length:AM}, (_,ri) => ({key:"am"+ri+"_"+p.id, cell:amC["am"+ri+"_"+p.id]||emptyCell()})).filter(x => x.cell.presetId);
-                    const pmTasks = Array.from({length:PM_R}, (_,ri) => ({key:"pm"+ri+"_"+p.id, cell:pmC["pm"+ri+"_"+p.id]||emptyCell()})).filter(x => x.cell.presetId);
+                    const amTasks = Array.from({length:AM}, (_,ri) => ({key:"am"+ri+"_"+p.id, cell:amC["am"+ri+"_"+p.id]||emptyCell(), slot:ri})).filter(x => x.cell.presetId);
+                    const pmTasks = Array.from({length:PM_R}, (_,ri) => ({key:"pm"+ri+"_"+p.id, cell:pmC["pm"+ri+"_"+p.id]||emptyCell(), slot:ri})).filter(x => x.cell.presetId);
+                    const os = orderStatus[p.id] || {med:{level:"none"},drip:{level:"none"},lab:{level:"none"}};
                     const pc = pendingConfirms[p.id]||[];
                     const dayNum = p.admissionDate ? dB(p.admissionDate, selDateStr) : null;
                     return (
@@ -1313,12 +1444,75 @@ export default function App() {
                           )}
                         </div>
 
+                        {/* Order confirmation */}
+                        <div style={{padding:"10px 14px",borderBottom:"1px solid #F1F5F9"}}>
+                          <div style={{fontSize:11,fontWeight:700,color:"#0D9488",marginBottom:6}}>📋 オーダー確認</div>
+                          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                            {[
+                              {key:"med",icon:"💊",label:"処方",prefix:"〜",noLabel:"未設定"},
+                              {key:"drip",icon:"💉",label:"点滴",prefix:"〜",noLabel:"未設定"},
+                              {key:"lab",icon:"🩸",label:"検査",prefix:"次回 ",noLabel:"未予約"}
+                            ].map(item => {
+                              const s = os[item.key];
+                              const isUrgent = s.level === "expired" || s.level === "today" || s.level === "none";
+                              const isWarn = s.level === "tomorrow";
+                              const bgC = isUrgent ? "#FEE2E2" : isWarn ? "#FEF3C7" : s.dateStr ? "#F0FDF4" : "#F8FAFC";
+                              const bdC = isUrgent ? "#FCA5A5" : isWarn ? "#FDE68A" : s.dateStr ? "#86EFAC" : "#E2E8F0";
+                              const txC = isUrgent ? "#DC2626" : isWarn ? "#92400E" : s.dateStr ? "#166534" : "#94A3B8";
+                              return (
+                                <div key={item.key} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:8,background:bgC,border:"1px solid "+bdC}}>
+                                  <span style={{fontSize:14}}>{item.icon}</span>
+                                  <span style={{fontSize:12,fontWeight:700,color:txC,minWidth:36}}>{item.label}</span>
+                                  <span style={{fontSize:13,fontWeight:700,color:txC,flex:1}}>
+                                    {s.dateStr ? item.prefix + addDw(s.dateStr) : item.noLabel}
+                                    {isUrgent && s.dateStr && " ⚠"}
+                                  </span>
+                                  <button onClick={() => setOrderExtMenu(prev => prev?.pid===p.id&&prev?.type===item.key ? null : {pid:p.id,type:item.key})}
+                                    style={{border:"1px solid "+bdC,background:"white",borderRadius:6,padding:"3px 8px",fontSize:11,color:txC,cursor:"pointer",fontWeight:600}}>
+                                    延長
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {orderExtMenu?.pid === p.id && (
+                            <div style={{marginTop:6,padding:"8px",background:"#F8FAFC",borderRadius:8,border:"1px solid #E2E8F0"}}>
+                              <div style={{fontSize:10,color:"#64748B",marginBottom:4,fontWeight:600}}>
+                                {orderExtMenu.type==="med"?"処方":orderExtMenu.type==="drip"?"点滴":"検査"} をいつまで延長？
+                              </div>
+                              <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                                {wk.map((d,i) => {
+                                  const ds = fD(d);
+                                  const t = isTd(d);
+                                  const isPastD = d < new Date(new Date().toDateString());
+                                  return (
+                                    <button key={i} onClick={() => { if(!isPastD) { extendOrderTo(p.id, orderExtMenu.type, ds); setOrderExtMenu(null); } }}
+                                      style={{padding:"4px 8px",borderRadius:6,fontSize:11,fontWeight:600,cursor:isPastD?"default":"pointer",
+                                        border:t?"2px solid #3B82F6":"1px solid #E2E8F0",
+                                        background:isPastD?"#F1F5F9":t?"#EFF6FF":"white",
+                                        color:isPastD?"#CBD5E1":t?"#3B82F6":"#334155",
+                                        opacity:isPastD?0.5:1}}>
+                                      {d.getDate()}({DOW[d.getDay()]})
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
                         {/* AM tasks */}
                         <div style={{padding:"8px 14px",borderBottom:"1px solid #F1F5F9"}}>
                           <div style={{fontSize:11,fontWeight:700,color:"#3B82F6",marginBottom:4}}>AM</div>
-                          {amTasks.map(({key, cell}) => (
+                          {amTasks.map(({key, cell, slot}, idx) => (
                             <div key={key} style={{padding:"4px 0",borderBottom:"1px solid #F8FAFC"}}>
-                              <div style={{display:"flex",alignItems:"center",gap:10,opacity:cell.checked?0.45:1}}>
+                              <div style={{display:"flex",alignItems:"center",gap:8,opacity:cell.checked?0.45:1}}>
+                                <div style={{display:"flex",flexDirection:"column",gap:1,flexShrink:0}}>
+                                  <button onClick={() => { if(idx>0) swapTask("am",slot,amTasks[idx-1].slot,p.id); }}
+                                    style={{border:"none",background:"transparent",color:idx>0?"#94A3B8":"#E2E8F0",fontSize:10,cursor:idx>0?"pointer":"default",padding:0,lineHeight:1}}>▲</button>
+                                  <button onClick={() => { if(idx<amTasks.length-1) swapTask("am",slot,amTasks[idx+1].slot,p.id); }}
+                                    style={{border:"none",background:"transparent",color:idx<amTasks.length-1?"#94A3B8":"#E2E8F0",fontSize:10,cursor:idx<amTasks.length-1?"pointer":"default",padding:0,lineHeight:1}}>▼</button>
+                                </div>
                                 <div onClick={() => compT(key)} style={ck(cell.checked,c.dt,22)}>{cell.checked && <Tk s={13}/>}</div>
                                 {cell.type === "free"
                                   ? <input value={cell.text||""} onChange={e => setAmC(prev => ({...prev,[key]:{...prev[key]||emptyCell(),text:e.target.value}}))}
@@ -1380,9 +1574,15 @@ export default function App() {
                         {/* PM tasks */}
                         <div style={{padding:"8px 14px",borderBottom:"1px solid #F1F5F9"}}>
                           <div style={{fontSize:11,fontWeight:700,color:"#8B5CF6",marginBottom:4}}>PM</div>
-                          {pmTasks.map(({key, cell}) => (
+                          {pmTasks.map(({key, cell, slot}, idx) => (
                             <div key={key} style={{padding:"4px 0",borderBottom:"1px solid #F8FAFC"}}>
-                              <div style={{display:"flex",alignItems:"center",gap:10,opacity:cell.checked?0.45:1}}>
+                              <div style={{display:"flex",alignItems:"center",gap:8,opacity:cell.checked?0.45:1}}>
+                                <div style={{display:"flex",flexDirection:"column",gap:1,flexShrink:0}}>
+                                  <button onClick={() => { if(idx>0) swapTask("pm",slot,pmTasks[idx-1].slot,p.id); }}
+                                    style={{border:"none",background:"transparent",color:idx>0?"#94A3B8":"#E2E8F0",fontSize:10,cursor:idx>0?"pointer":"default",padding:0,lineHeight:1}}>▲</button>
+                                  <button onClick={() => { if(idx<pmTasks.length-1) swapTask("pm",slot,pmTasks[idx+1].slot,p.id); }}
+                                    style={{border:"none",background:"transparent",color:idx<pmTasks.length-1?"#94A3B8":"#E2E8F0",fontSize:10,cursor:idx<pmTasks.length-1?"pointer":"default",padding:0,lineHeight:1}}>▼</button>
+                                </div>
                                 <div onClick={() => compT(key)} style={ck(cell.checked,c.dt,22)}>{cell.checked && <Tk s={13}/>}</div>
                                 {cell.type === "free"
                                   ? <input value={cell.text||""} onChange={e => setPmC(prev => ({...prev,[key]:{...prev[key]||emptyCell(),text:e.target.value}}))}
@@ -1603,12 +1803,28 @@ export default function App() {
             <button onClick={() => setSelDate(new Date())} style={{border:"1px solid #E2E8F0",background:"white",borderRadius:4,padding:"2px 8px",fontSize:8,color:"#64748B",cursor:"pointer",fontWeight:600}}>今日に戻る</button>
           </div>
 
-          {/* Follow-up alert */}
-          {discharged.filter(p => p.followUp === selDateStr).map(p => (
-            <div key={p.id} style={{padding:"5px 12px",background:"#F5F3FF",borderBottom:"1px solid #DDD6FE",fontSize:10,color:"#6D28D9",fontWeight:700,flexShrink:0}}>
-              🏥 外来フォロー: {p.name}（{p.diagnosis}）
-            </div>
-          ))}
+          {/* Follow-up alert (today and tomorrow) */}
+          {(() => {
+            const todayDate = new Date(new Date().toDateString());
+            const fuPats = discharged.filter(p => {
+              if (!p.followUp) return false;
+              const fd = pMD(p.followUp);
+              if (!fd) return false;
+              const diff = Math.round((fd - todayDate) / 86400000);
+              return diff >= 0 && diff <= 1;
+            });
+            if (!fuPats.length) return null;
+            return fuPats.map(p => {
+              const fd = pMD(p.followUp);
+              const diff = Math.round((fd - todayDate) / 86400000);
+              const label = diff === 0 ? "本日" : "明日";
+              return (
+                <div key={p.id} style={{padding:"5px 12px",background:diff===0?"#FEF3C7":"#F5F3FF",borderBottom:"1px solid "+(diff===0?"#FDE68A":"#DDD6FE"),fontSize:10,color:diff===0?"#92400E":"#6D28D9",fontWeight:700,flexShrink:0}}>
+                  🏥 外来フォロー({label}): {p.name}（{p.diagnosis}） {p.followUp}
+                </div>
+              );
+            });
+          })()}
 
           {/* Priority bar */}
           {priList.length > 0 && (
@@ -1667,6 +1883,29 @@ export default function App() {
                     </td>
                   ); })}
                 </tr>
+                {/* Order confirmation row */}
+                <tr style={{background:"#F0FDFA"}}>
+                  <td style={{padding:"2px",textAlign:"center",borderBottom:"2px solid #99F6E4",borderRight:"1px solid #E2E8F0",background:"#CCFBF1"}}><span style={{fontSize:8}}>📋</span></td>
+                  {filteredPats.map(p => {
+                    const os = orderStatus[p.id] || {};
+                    return (
+                      <td key={p.id} style={{padding:"2px 3px",borderBottom:"2px solid #99F6E4",borderLeft:"1px solid #F1F5F9",verticalAlign:"top"}}>
+                        {[{k:"med",i:"💊",pf:"〜"},{k:"drip",i:"💉",pf:"〜"},{k:"lab",i:"🩸",pf:""}].map(item => {
+                          const s = os[item.k] || {};
+                          const urgent = s.level==="expired"||s.level==="today"||s.level==="none";
+                          const warn = s.level==="tomorrow";
+                          return (
+                            <div key={item.k} style={{fontSize:7,fontWeight:600,lineHeight:1.6,
+                              color:urgent?"#DC2626":warn?"#92400E":s.dateStr?"#166534":"#CBD5E1"}}>
+                              {item.i}{s.dateStr ? item.pf+addDw(s.dateStr) : "—"}{urgent&&s.dateStr?" ⚠":""}
+                            </div>
+                          );
+                        })}
+                      </td>
+                    );
+                  })}
+                </tr>
+
                 {tdRows("am", "#3B82F6", amC, setAmC, AM)}
                 {tdRows("pm", "#8B5CF6", pmC, setPmC, PM_R)}
 
