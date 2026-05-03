@@ -63,6 +63,27 @@ const isTd = d => dk(d) === dk(new Date());
 const tdL = () => fD(new Date());
 const pMD = s => { if (!s) return null; const p = s.split("/"); return p.length === 2 ? new Date(2026, parseInt(p[0])-1, parseInt(p[1])) : null; };
 const dB = (a, b) => { const s = pMD(a), d = pMD(b); return (s && d) ? Math.round((d - s) / 86400000) + 1 : null; };
+// Cumulative abx day count: walk backwards through contiguous abx orders for this patient
+// "contiguous" = previous abx ends on or after the start of current course (no gap)
+const abxCumDay = (po, currentAbx, todayDateStr) => {
+  if (!currentAbx || currentAbx.type !== "abx" || !currentAbx.startDate) return null;
+  const td = pMD(todayDateStr), curS = pMD(currentAbx.startDate), curE = pMD(currentAbx.endDate || currentAbx.startDate);
+  if (!td || !curS || td < curS || td > curE) return null;
+  // Find earliest startDate by walking backwards through chain of overlapping/contiguous abx orders
+  const allAbx = (po||[]).filter(o => o.type === "abx" && o.startDate && o.endDate)
+    .map(o => ({s: pMD(o.startDate), e: pMD(o.endDate)})).filter(x => x.s && x.e);
+  let earliest = curS;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const ab of allAbx) {
+      // If this order ends on or after (earliest - 1 day) and starts before earliest -> extend back
+      const gapDays = Math.round((earliest - ab.e) / 86400000);
+      if (ab.s < earliest && gapDays <= 1) { earliest = ab.s; changed = true; }
+    }
+  }
+  return Math.round((td - earliest) / 86400000) + 1;
+};
 // Horio式 (日本人向けCCr推算式) — 身長未入力時はCockcroft-Gaultで代替
 // Horio男性: ((33 - 0.065×age - 0.493×BMI) × weight) / (Cr × 14.4)
 // Horio女性: ((21 - 0.052×age - 0.202×BMI) × weight) / (Cr × 14.4)
@@ -1023,7 +1044,7 @@ export default function App() {
     );
 
     // Category rows — each category gets a header row; each order gets its own row
-    const ALWAYS_SHOW_TYPES = ["drip_main","med","lab","family_call"];
+    const ALWAYS_SHOW_TYPES = ["abx","drip_main","med","lab","family_call"];
     if (isE) {
       (patCats[p.id] || DEFAULT_CATS).forEach(cat => {
         const items = po.filter(o => o.type === cat.type);
@@ -1094,7 +1115,7 @@ export default function App() {
                       if (!it.name) return <div style={{height:12}}/>;
                       const on = it.startDate && it.endDate && bSp(it.startDate, it.endDate, ds);
                       const iS = it.startDate === ds, iE = it.endDate === ds;
-                      const dn = on && cat.showDay ? dB(it.startDate, ds) : null;
+                      const dn = on && cat.showDay ? (cat.type === "abx" ? abxCumDay(po, it, ds) : dB(it.startDate, ds)) : null;
                       return (
                         <div onClick={() => extBar(p.id, it.id, ds)} style={{cursor:"pointer",height:cat.showDay?16:12}}>
                           {on ? (
@@ -2029,34 +2050,6 @@ export default function App() {
                     </td>
                   ); })}
                 </tr>
-                {/* Order confirmation row */}
-                <tr style={{background:"#F0FDFA"}}>
-                  <td style={{padding:"2px",textAlign:"center",borderBottom:"2px solid #99F6E4",borderRight:"1px solid #E2E8F0",background:"#CCFBF1"}}><span style={{fontSize:8}}>📋</span></td>
-                  {filteredPats.map(p => {
-                    const os = orderStatus[p.id] || {};
-                    return (
-                      <td key={p.id} style={{padding:"2px 3px",borderBottom:"2px solid #99F6E4",borderLeft:"1px solid #F1F5F9",verticalAlign:"top"}}>
-                        {[{k:"med",i:"💊",pf:"〜"},{k:"drip",i:"💉",pf:"〜"},{k:"lab",i:"🩸",pf:""}].map(item => {
-                          const s = os[item.k] || {};
-                          const urgent = s.level==="expired"||s.level==="today"||s.level==="none";
-                          const warn = s.level==="tomorrow";
-                          return (
-                            <div key={item.k} style={{fontSize:7,fontWeight:600,lineHeight:1.6,
-                              color:urgent?"#DC2626":warn?"#92400E":s.dateStr?"#166534":"#CBD5E1"}}>
-                              {item.i}{s.dateStr ? item.pf+addDw(s.dateStr) : "—"}{urgent&&s.dateStr?" ⚠":""}
-                            </div>
-                          );
-                        })}
-                        {os.famCall && os.famCall.alert && !os.famCall.isAlone && (
-                          <div style={{fontSize:7,fontWeight:700,lineHeight:1.6,color:"#92400E"}}>
-                            📞{os.famCall.days != null ? os.famCall.days+"日" : "未"}⚠
-                          </div>
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-
                 {tdRows("am", "#3B82F6", amC, setAmC, AM)}
                 {tdRows("pm", "#8B5CF6", pmC, setPmC, PM_R)}
 
@@ -2082,24 +2075,55 @@ export default function App() {
                   </tr>
                 )}
 
-                {/* Order checklist */}
+                {/* Order checklist - 漏れチェック */}
                 <tr style={{background:"#FFF7ED"}}>
                   <td style={{padding:"2px",textAlign:"center",borderTop:"2px solid #FED7AA",borderBottom:"2px solid #FED7AA",borderRight:"1px solid #E2E8F0",background:"#FFF7ED"}}><span style={{fontSize:9}}>📋</span></td>
                   {filteredPats.map(p => {
                     const po = orders[p.id]||[], sd = pMD(selDateStr);
+                    const os = orderStatus[p.id] || {};
                     const onToday = o => o.dates?.some(d => d === selDateStr);
                     const notExpAbx = o => { if (!o.endDate) return true; const ed = pMD(o.endDate); return ed && sd && ed >= sd; };
                     const drips = po.filter(o => o.type === "drip_main" && o.name && onToday(o));
                     const meds = po.filter(o => o.type === "med" && o.name && onToday(o));
                     const abxs = po.filter(o => o.type === "abx" && o.name && notExpAbx(o));
                     const labs = po.filter(o => o.type === "lab" && o.dates?.some(d => { const dd = pMD(d); return dd && sd && dd >= sd; }));
+                    // Missing detection: section is empty (no items) for med/drip/lab
+                    const missMed = meds.length === 0 && os.med?.level !== "ok";
+                    const missDrip = drips.length === 0 && os.drip?.level !== "ok";
+                    const missLab = labs.length === 0;
+                    const sumColor = lvl => lvl==="expired"||lvl==="today"||lvl==="none" ? "#DC2626" : lvl==="tomorrow" ? "#92400E" : "#166534";
                     return (
                       <td key={p.id} style={{padding:"2px 3px",borderTop:"2px solid #FED7AA",borderBottom:"2px solid #FED7AA",borderLeft:"1px solid #F1F5F9",verticalAlign:"top",fontSize:7,color:"#64748B"}}>
-                        {drips.map(o => <div key={o.id}>💉{o.name}</div>)}
-                        {meds.map(o => <div key={o.id}>💊{o.name}</div>)}
-                        {abxs.map(o => <div key={o.id}>🦠{o.name} <b style={{color:"#C2410C"}}>〜{addDw(o.endDate)}</b></div>)}
-                        {labs.map(o => <div key={o.id}>🩸{o.name} <b style={{color:"#0369A1"}}>{(o.dates||[]).filter(d => { const dd = pMD(d); return dd && sd && dd >= sd; }).map(d => addDw(d)).join(",")}</b></div>)}
-                        {drips.length === 0 && meds.length === 0 && labs.length === 0 && <span style={{color:"#E2E8F0"}}>—</span>}
+                        {/* 内服 */}
+                        <div style={{borderBottom:"1px dashed #FED7AA",paddingBottom:1,marginBottom:1}}>
+                          <span style={{fontWeight:700,color:sumColor(os.med?.level)}}>💊 {os.med?.dateStr ? "〜"+addDw(os.med.dateStr) : missMed?"未設定 ⚠":"—"}</span>
+                          {meds.map(o => <div key={o.id} style={{paddingLeft:8}}>・{o.name}</div>)}
+                        </div>
+                        {/* 点滴 */}
+                        <div style={{borderBottom:"1px dashed #FED7AA",paddingBottom:1,marginBottom:1}}>
+                          <span style={{fontWeight:700,color:sumColor(os.drip?.level)}}>💉 {os.drip?.dateStr ? "〜"+addDw(os.drip.dateStr) : missDrip?"未設定 ⚠":"—"}</span>
+                          {drips.map(o => <div key={o.id} style={{paddingLeft:8}}>・{o.name}</div>)}
+                        </div>
+                        {/* 抗菌薬 */}
+                        {abxs.length > 0 && (
+                          <div style={{borderBottom:"1px dashed #FED7AA",paddingBottom:1,marginBottom:1}}>
+                            {abxs.map(o => {
+                              const totDays = abxCumDay(po, o, selDateStr);
+                              return (
+                                <div key={o.id} style={{fontWeight:600,color:"#C2410C"}}>🦠 {o.name} <span style={{color:"#92400E"}}>{totDays?"Day"+totDays+" ":""}〜{addDw(o.endDate)}</span></div>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {/* 検査 */}
+                        <div style={{borderBottom:"1px dashed #FED7AA",paddingBottom:1,marginBottom:1}}>
+                          <span style={{fontWeight:700,color:missLab?"#DC2626":"#0369A1"}}>🩸 {os.lab?.dateStr ? "次"+addDw(os.lab.dateStr) : "未予約 ⚠"}</span>
+                          {labs.map(o => <div key={o.id} style={{paddingLeft:8}}>・{o.name}</div>)}
+                        </div>
+                        {/* 家族電話アラート */}
+                        {os.famCall && os.famCall.alert && !os.famCall.isAlone && (
+                          <div style={{fontWeight:700,color:"#92400E"}}>📞 {os.famCall.days != null ? os.famCall.days+"日未" : "未記録"} ⚠</div>
+                        )}
                       </td>
                     );
                   })}
