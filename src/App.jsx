@@ -21,6 +21,8 @@ const PRESETS = [
   {id:"consult",icon:"📨",label:"他科コンサルト",type:"consult"},
   {id:"drip",icon:"💉",label:"点滴確認",type:"drip_main"},
   {id:"meds",icon:"💊",label:"投薬確認"},
+  {id:"interview",icon:"🗣️",label:"問診",type:"interview"},
+  {id:"exam",icon:"🩺",label:"身体所見",type:"exam"},
   {id:"free",icon:"✏️",label:"自由記載",type:"free"}
 ];
 const LAB_F = ["血球","CRP","電解質","腎機能","肝胆道系","その他"];
@@ -405,6 +407,12 @@ function TaskCell({cell, onUpdate, color, onComplete, onPriority, onCultureDone,
         {cell.type === "free" ? (
           <input value={cell.text||""} onChange={e => onUpdate({...cell,text:e.target.value})} placeholder="..."
             style={{...ip,flex:1,fontSize:9,textDecoration:cell.checked?"line-through":"none",opacity:cell.checked?0.4:1,width:"auto"}}/>
+        ) : (cell.type === "interview" || cell.type === "exam") ? (
+          <>
+            <span style={{fontSize:9,fontWeight:600,color:"#334155",flexShrink:0,opacity:cell.checked?0.4:1}}>{cell.label}:</span>
+            <input value={cell.text||""} onChange={e => onUpdate({...cell,text:e.target.value})} placeholder="..."
+              style={{...ip,flex:1,fontSize:9,textDecoration:cell.checked?"line-through":"none",opacity:cell.checked?0.4:1,width:"auto"}}/>
+          </>
         ) : (
           <span style={{fontSize:9,fontWeight:600,color:"#334155",flex:1,overflow:"hidden",textOverflow:"ellipsis",
             whiteSpace:"nowrap",textDecoration:cell.checked?"line-through":"none",opacity:cell.checked?0.4:1}}>
@@ -1631,6 +1639,12 @@ export default function App() {
                                 {cell.type === "free"
                                   ? <input value={cell.text||""} onChange={e => setAmC(prev => ({...prev,[key]:{...prev[key]||emptyCell(),text:e.target.value}}))}
                                       placeholder="メモ..." style={{fontSize:14,flex:1,border:"none",outline:"none",background:"transparent",fontFamily:"inherit",textDecoration:cell.checked?"line-through":"none"}}/>
+                                  : (cell.type === "interview" || cell.type === "exam")
+                                  ? <span style={{fontSize:14,flex:1,display:"flex",alignItems:"center",gap:4,textDecoration:cell.checked?"line-through":"none"}}>
+                                      <span style={{flexShrink:0}}>{cell.icon} {cell.label}:</span>
+                                      <input value={cell.text||""} onChange={e => setAmC(prev => ({...prev,[key]:{...prev[key]||emptyCell(),text:e.target.value}}))}
+                                        placeholder="..." style={{fontSize:14,flex:1,border:"none",outline:"none",background:"transparent",fontFamily:"inherit",borderBottom:"1px dashed #CBD5E1"}}/>
+                                    </span>
                                   : <span style={{fontSize:14,flex:1,textDecoration:cell.checked?"line-through":"none"}}>{cell.icon} {cell.label||cell.text}</span>
                                 }
                                 {cell.type === "lab" && (
@@ -1700,6 +1714,12 @@ export default function App() {
                                 {cell.type === "free"
                                   ? <input value={cell.text||""} onChange={e => setPmC(prev => ({...prev,[key]:{...prev[key]||emptyCell(),text:e.target.value}}))}
                                       placeholder="メモ..." style={{fontSize:14,flex:1,border:"none",outline:"none",background:"transparent",fontFamily:"inherit",textDecoration:cell.checked?"line-through":"none"}}/>
+                                  : (cell.type === "interview" || cell.type === "exam")
+                                  ? <span style={{fontSize:14,flex:1,display:"flex",alignItems:"center",gap:4,textDecoration:cell.checked?"line-through":"none"}}>
+                                      <span style={{flexShrink:0}}>{cell.icon} {cell.label}:</span>
+                                      <input value={cell.text||""} onChange={e => setPmC(prev => ({...prev,[key]:{...prev[key]||emptyCell(),text:e.target.value}}))}
+                                        placeholder="..." style={{fontSize:14,flex:1,border:"none",outline:"none",background:"transparent",fontFamily:"inherit",borderBottom:"1px dashed #CBD5E1"}}/>
+                                    </span>
                                   : <span style={{fontSize:14,flex:1,textDecoration:cell.checked?"line-through":"none"}}>{cell.icon} {cell.label||cell.text}</span>
                                 }
                                 {cell.type === "lab" && (
