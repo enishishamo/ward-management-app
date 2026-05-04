@@ -467,10 +467,30 @@ function TaskCell({cell, onUpdate, color, onComplete, onPriority, onCultureDone,
 const loadLS = (key, fallback) => { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; } };
 const saveLS = (key, val) => { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} };
 
+// Backup helpers — keys subject to backup
+const BACKUP_KEYS = ["ward_patients_v2","ward_discharged_v2","ward_orders_v2","ward_patCats_v2","ward_rLabs_v2","ward_taskDB","ward_consults_v2"];
+const collectBackup = () => { const o = {}; BACKUP_KEYS.forEach(k => { const v = localStorage.getItem(k); if (v) o[k] = v; }); return o; };
+const applyBackup = (snap) => { BACKUP_KEYS.forEach(k => { if (snap[k] != null) localStorage.setItem(k, snap[k]); }); };
+const listBackups = () => Object.keys(localStorage).filter(k => k.startsWith("ward_backup_")).sort().reverse();
+const saveDailyBackup = () => {
+  const today = new Date().toISOString().slice(0,10);
+  const key = "ward_backup_" + today;
+  if (localStorage.getItem(key)) return; // already backed up today
+  try {
+    localStorage.setItem(key, JSON.stringify(collectBackup()));
+    // Keep only last 7 backups
+    const all = listBackups();
+    all.slice(7).forEach(k => localStorage.removeItem(k));
+  } catch (e) { console.warn("Backup failed:", e); }
+};
+
 // ===== MAIN APP =====
 export default function App() {
   const [selDate, setSelDate] = useState(new Date());
   const wk = useMemo(() => getWk(selDate), [selDate]);
+  const [backupModal, setBackupModal] = useState(false);
+  // Run daily auto-backup on mount
+  useEffect(() => { saveDailyBackup(); }, []);
   const [patients, setPatients] = useState(() => loadLS("ward_patients_v2", iPats));
   const [discharged, setDischarged] = useState(() => loadLS("ward_discharged_v2", []));
   const wardOrder = r => { const i = WARDS.indexOf(r); return i >= 0 ? i : 99; };
@@ -1218,6 +1238,7 @@ export default function App() {
             </div>
           )}
         </div>
+        <button onClick={() => setBackupModal(true)} title="バックアップ" style={{border:"1px solid #E2E8F0",background:"#F8FAFC",borderRadius:20,padding:"6px 10px",fontSize:14,cursor:"pointer",flexShrink:0,marginRight:6}}>💾</button>
         <button onClick={() => setPatModal({})} style={{border:"none",background:"#3B82F6",borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:700,color:"white",cursor:"pointer",flexShrink:0}}>＋患者</button>
       </header>
 
@@ -2248,6 +2269,96 @@ export default function App() {
       {patModal !== null && <PatientModal edit={patModal.edit} onSave={addOrUpdatePat} onDelete={deletePat} onClose={() => setPatModal(null)} doctors={doctors} usedColors={patients.map(p=>p.color)}/>}
       {catModal && <AddCatModal onAdd={c => setPatCats(pr => ({...pr,[catModal]:[...(pr[catModal]||DEFAULT_CATS),c]}))} onClose={() => setCatModal(null)}/>}
       {dischargeModal && <DischargeModal patient={dischargeModal} onConfirm={confirmDischarge} onCancel={() => setDischargeModal(null)}/>}
+      {backupModal && <BackupModal onClose={() => setBackupModal(false)}/>}
+    </div>
+  );
+}
+
+function BackupModal({onClose}) {
+  const [backups, setBackups] = useState(() => listBackups());
+  const fileInputRef = useRef(null);
+  const refresh = () => setBackups(listBackups());
+  const exportJSON = () => {
+    const data = collectBackup();
+    // Decode JSON strings inside so the export file is human-readable
+    const decoded = {};
+    Object.keys(data).forEach(k => { try { decoded[k] = JSON.parse(data[k]); } catch { decoded[k] = data[k]; } });
+    const blob = new Blob([JSON.stringify(decoded, null, 2)], {type: "application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const ts = new Date().toISOString().slice(0,16).replace(/[:T]/g,"-");
+    a.href = url; a.download = `ward-backup-${ts}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  const importJSON = e => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (!confirm("現在のデータを上書きします。よろしいですか？")) return;
+        const snap = {};
+        Object.keys(data).forEach(k => { snap[k] = typeof data[k] === "string" ? data[k] : JSON.stringify(data[k]); });
+        applyBackup(snap);
+        alert("復元しました。ページをリロードします。");
+        location.reload();
+      } catch (err) { alert("ファイルの読み込みに失敗しました: " + err.message); }
+    };
+    reader.readAsText(file);
+  };
+  const restoreFromKey = key => {
+    if (!confirm(key.replace("ward_backup_","") + " のバックアップに戻します。現在のデータは上書きされます。よろしいですか？")) return;
+    try {
+      const snap = JSON.parse(localStorage.getItem(key));
+      applyBackup(snap);
+      alert("復元しました。ページをリロードします。");
+      location.reload();
+    } catch (err) { alert("復元失敗: " + err.message); }
+  };
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div onClick={e => e.stopPropagation()} style={{background:"white",borderRadius:14,maxWidth:440,width:"100%",maxHeight:"90vh",overflow:"auto",padding:20,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+          <h2 style={{margin:0,fontSize:18,fontWeight:800}}>💾 データ管理</h2>
+          <button onClick={onClose} style={{border:"none",background:"transparent",fontSize:20,cursor:"pointer",color:"#94A3B8"}}>✕</button>
+        </div>
+
+        <div style={{marginBottom:20}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#475569",marginBottom:8}}>📥 ファイルに保存</div>
+          <p style={{fontSize:11,color:"#94A3B8",margin:"0 0 8px 0",lineHeight:1.5}}>すべてのデータをJSONファイルにダウンロードします。週1回程度の手動バックアップを推奨。</p>
+          <button onClick={exportJSON} style={{width:"100%",padding:"10px",background:"#3B82F6",color:"white",border:"none",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer"}}>📥 ダウンロード</button>
+        </div>
+
+        <div style={{marginBottom:20}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#475569",marginBottom:8}}>📤 ファイルから復元</div>
+          <p style={{fontSize:11,color:"#94A3B8",margin:"0 0 8px 0",lineHeight:1.5}}>保存したJSONファイルから復元します。現在のデータは上書きされます。</p>
+          <input ref={fileInputRef} type="file" accept="application/json,.json" onChange={importJSON} style={{display:"none"}}/>
+          <button onClick={() => fileInputRef.current?.click()} style={{width:"100%",padding:"10px",background:"#10B981",color:"white",border:"none",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer"}}>📤 ファイルを選択</button>
+        </div>
+
+        <div style={{marginBottom:8}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#475569",marginBottom:8}}>🕐 自動バックアップ</div>
+          <p style={{fontSize:11,color:"#94A3B8",margin:"0 0 8px 0",lineHeight:1.5}}>毎日自動で保存されます（最大7日分）。データが消えた時はここから戻せます。</p>
+          {backups.length === 0 ? (
+            <div style={{padding:"12px",background:"#F8FAFC",borderRadius:8,fontSize:12,color:"#94A3B8",textAlign:"center"}}>バックアップなし</div>
+          ) : (
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              {backups.map(key => {
+                const date = key.replace("ward_backup_","");
+                const today = new Date().toISOString().slice(0,10);
+                const isToday = date === today;
+                return (
+                  <div key={key} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:isToday?"#EFF6FF":"#F8FAFC",borderRadius:8,border:"1px solid "+(isToday?"#BFDBFE":"#E2E8F0")}}>
+                    <span style={{fontSize:13,fontWeight:600,color:"#334155",flex:1}}>{date}{isToday && <span style={{fontSize:10,marginLeft:6,color:"#3B82F6",fontWeight:700}}>本日</span>}</span>
+                    <button onClick={() => restoreFromKey(key)} style={{border:"1px solid #E2E8F0",background:"white",borderRadius:6,padding:"4px 10px",fontSize:11,fontWeight:600,color:"#475569",cursor:"pointer"}}>復元</button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
