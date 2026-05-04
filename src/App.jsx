@@ -1361,42 +1361,50 @@ export default function App() {
                       style={{border:"1px solid #E2E8F0",background:"white",borderRadius:8,width:36,height:36,cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>▶</button>
                   </div>
 
-                  {/* View mode toggle */}
-                  <div style={{display:"flex",background:"#F1F5F9",borderRadius:8,padding:3,marginBottom:8,gap:2}}>
-                    {[["summary","📋 一覧"],["cards","👤 詳細"]].map(([mode,label]) => (
-                      <button key={mode} onClick={() => setTodayView(mode)}
-                        style={{flex:1,border:"none",borderRadius:6,padding:"6px 0",fontSize:12,fontWeight:700,cursor:"pointer",
-                          background:todayView===mode?"white":"transparent",
-                          color:todayView===mode?"#1D4ED8":"#94A3B8",
-                          boxShadow:todayView===mode?"0 1px 3px rgba(0,0,0,0.1)":"none"}}>
-                        {label}
-                      </button>
-                    ))}
+                  {/* View mode toggle - subtle, right-aligned */}
+                  <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}>
+                    <div style={{display:"inline-flex",background:"#F1F5F9",borderRadius:6,padding:2,gap:1}}>
+                      {[["summary","📋","一覧"],["cards","👤","詳細"]].map(([mode,ic,label]) => (
+                        <button key={mode} onClick={() => setTodayView(mode)}
+                          style={{border:"none",borderRadius:5,padding:"4px 10px",fontSize:11,fontWeight:600,cursor:"pointer",
+                            background:todayView===mode?"white":"transparent",
+                            color:todayView===mode?"#1D4ED8":"#94A3B8",
+                            boxShadow:todayView===mode?"0 1px 2px rgba(0,0,0,0.08)":"none",
+                            display:"flex",alignItems:"center",gap:3}}>
+                          <span>{ic}</span><span>{label}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
-                  {/* Pending discharge tasks */}
-                  {(() => {
+                  {/* Pending discharge tasks - compact, summary view only */}
+                  {todayView === "summary" && (() => {
                     const pendingPats = discharged.filter(p => (p.pendingDischTasks||[]).length > 0);
                     if (!pendingPats.length) return null;
                     return (
-                      <div style={{background:"#FFF7ED",border:"1px solid #FED7AA",borderRadius:10,padding:"8px 12px",marginBottom:8}}>
-                        <div style={{fontSize:11,fontWeight:700,color:"#92400E",marginBottom:6}}>📋 退院後の未完了タスク</div>
-                        {pendingPats.map(p => (
-                          <div key={p.id} style={{marginBottom:6}}>
-                            <div style={{fontSize:11,fontWeight:600,color:"#78350F",marginBottom:4}}>{p.name}（{p.dischargeDate}退院）</div>
-                            <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
-                              {(p.pendingDischTasks||[]).map(task => (
-                                <div key={task} onClick={() => markDischTask(p.id, task)}
-                                  style={{display:"flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:6,
-                                    background:"white",border:"1px solid #FED7AA",cursor:"pointer",fontSize:11,userSelect:"none"}}>
-                                  <div style={{width:12,height:12,borderRadius:3,border:"2px solid #F97316",flexShrink:0}}/>
-                                  {task}
-                                </div>
-                              ))}
+                      <details style={{background:"#FFF7ED",border:"1px solid #FED7AA",borderRadius:8,padding:"6px 10px",marginBottom:8}}>
+                        <summary style={{fontSize:11,fontWeight:700,color:"#92400E",cursor:"pointer",listStyle:"none",display:"flex",alignItems:"center",gap:4}}>
+                          <span>📋 退院後の未完了タスク</span>
+                          <span style={{background:"#F97316",color:"white",borderRadius:10,padding:"0 6px",fontSize:10}}>{pendingPats.reduce((n,p) => n+(p.pendingDischTasks||[]).length, 0)}</span>
+                        </summary>
+                        <div style={{marginTop:6}}>
+                          {pendingPats.map(p => (
+                            <div key={p.id} style={{marginBottom:6}}>
+                              <div style={{fontSize:11,fontWeight:600,color:"#78350F",marginBottom:4}}>{p.name}（{p.dischargeDate}退院）</div>
+                              <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                                {(p.pendingDischTasks||[]).map(task => (
+                                  <div key={task} onClick={() => markDischTask(p.id, task)}
+                                    style={{display:"flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:6,
+                                      background:"white",border:"1px solid #FED7AA",cursor:"pointer",fontSize:11,userSelect:"none"}}>
+                                    <div style={{width:12,height:12,borderRadius:3,border:"2px solid #F97316",flexShrink:0}}/>
+                                    {task}
+                                  </div>
+                                ))}
+                              </div>
                             </div>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+                      </details>
                     );
                   })()}
 
