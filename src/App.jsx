@@ -297,14 +297,26 @@ function PatientModal({onSave, onDelete, onClose, edit, doctors, usedColors}) {
 function DischargeModal({patient, onConfirm, onCancel}) {
   const toDateVal = s => { const d = pMD(s); if (!d) return ""; const m = String(d.getMonth()+1).padStart(2,"0"), dd = String(d.getDate()).padStart(2,"0"); return `2026-${m}-${dd}`; };
   const fromDateVal = v => { if (!v) return ""; const [,m,d] = v.split("-"); return `${parseInt(m)}/${parseInt(d)}`; };
-  const [fu, setFu] = useState("");
-  const [hasFU, setHasFU] = useState(false);
-  const [fuMemo, setFuMemo] = useState("");
+  // Default discharge date = today
+  const todayStr = (() => { const d = new Date(); const m = String(d.getMonth()+1).padStart(2,"0"), dd = String(d.getDate()).padStart(2,"0"); return `2026-${m}-${dd}`; })();
+  const [dischDate, setDischDate] = useState(patient.plannedDischargeDate ? toDateVal(patient.plannedDischargeDate) : todayStr);
+  const [fu, setFu] = useState(patient.followUp ? toDateVal(patient.followUp) : "");
+  const [hasFU, setHasFU] = useState(!!patient.followUp);
+  const [fuMemo, setFuMemo] = useState(patient.followUpMemo || "");
+  const isFuture = dischDate && dischDate > todayStr;
   return (
     <div style={{position:"fixed",inset:0,zIndex:300,background:"rgba(15,23,42,0.6)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={onCancel}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"white",borderRadius:16,width:"100%",maxWidth:360,padding:20,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",boxSizing:"border-box"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"white",borderRadius:16,width:"100%",maxWidth:360,padding:20,boxShadow:"0 20px 60px rgba(0,0,0,0.3)",boxSizing:"border-box",maxHeight:"90vh",overflow:"auto"}}>
         <h3 style={{margin:"0 0 4px",fontSize:16,fontWeight:800}}>退院処理</h3>
         <p style={{margin:"0 0 16px",fontSize:13,color:"#64748B"}}>{patient.name}（{patient.diagnosis}）</p>
+
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:11,color:"#64748B",fontWeight:700,marginBottom:4}}>退院日</div>
+          <input type="date" value={dischDate} onChange={e=>setDischDate(e.target.value)}
+            style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:8,padding:"8px 10px",fontSize:14,outline:"none",boxSizing:"border-box"}}/>
+          {isFuture && <p style={{margin:"6px 0 0",fontSize:11,color:"#3B82F6",fontWeight:600}}>📅 退院予定として登録 → 当日まで通常運用、当日自動的に退院扱い</p>}
+        </div>
+
         <div style={{marginBottom:14}}>
           <label style={{display:"flex",alignItems:"center",gap:8,fontSize:14,fontWeight:600,cursor:"pointer"}}>
             <input type="checkbox" checked={hasFU} onChange={e=>setHasFU(e.target.checked)} style={{width:18,height:18}}/>
@@ -326,9 +338,13 @@ function DischargeModal({patient, onConfirm, onCancel}) {
           </>
         )}
         <div style={{display:"flex",gap:8}}>
+          {patient.plannedDischargeDate && (
+            <button onClick={() => onConfirm(patient.id, "cancel")}
+              style={{border:"1px solid #E2E8F0",background:"white",borderRadius:10,padding:"10px 8px",fontSize:11,cursor:"pointer",fontWeight:600,color:"#64748B"}}>予定取消</button>
+          )}
           <button onClick={onCancel} style={{flex:1,border:"1px solid #E2E8F0",background:"white",borderRadius:10,padding:10,fontSize:13,cursor:"pointer",fontWeight:600}}>キャンセル</button>
-          <button onClick={() => onConfirm(patient.id, hasFU ? fromDateVal(fu) : "", fuMemo)}
-            style={{flex:2,border:"none",background:"#EF4444",color:"white",borderRadius:10,padding:10,fontSize:13,fontWeight:700,cursor:"pointer"}}>退院確定</button>
+          <button onClick={() => onConfirm(patient.id, fromDateVal(dischDate), hasFU ? fromDateVal(fu) : "", fuMemo)}
+            style={{flex:2,border:"none",background:isFuture?"#3B82F6":"#EF4444",color:"white",borderRadius:10,padding:10,fontSize:13,fontWeight:700,cursor:"pointer"}}>{isFuture?"退院予定登録":"退院確定"}</button>
         </div>
       </div>
     </div>
@@ -586,15 +602,45 @@ export default function App() {
     const p = patients.find(x => x.id === pid); if (!p) return;
     setDischargeModal(p);
   };
-  const confirmDischarge = (pid, followUpDate, followUpMemo) => {
+  const confirmDischarge = (pid, dischargeDate, followUpDate, followUpMemo) => {
     const p = patients.find(x => x.id === pid); if (!p) return;
+    // Cancel planned discharge
+    if (dischargeDate === "cancel") {
+      setPatients(pr => pr.map(x => x.id === pid ? {...x, plannedDischargeDate: null, plannedFollowUp: null, plannedFollowUpMemo: null} : x));
+      setDischargeModal(null);
+      return;
+    }
+    const dischDateStr = dischargeDate || today;
+    const dischD = pMD(dischDateStr);
+    const todayD = pMD(today);
+    // If discharge date is in the future → save as planned, keep patient active
+    if (dischD && todayD && dischD > todayD) {
+      setPatients(pr => pr.map(x => x.id === pid ? {...x, plannedDischargeDate: dischDateStr, plannedFollowUp: followUpDate||"", plannedFollowUpMemo: followUpMemo||""} : x));
+      setDischargeModal(null);
+      return;
+    }
+    // Today or past → discharge immediately
     const pendingDischTasks = DISCH_CL.filter(x => !dCL[pid+"_d_"+x]);
-    // Check if "かかりつけ診療情報提供書" in admission checklist is unchecked
     const infoLetterUnchecked = !aCL[pid+"_a_かかりつけ診療情報提供書"];
-    setDischarged(pr => [...pr, {...p, dischargeDate: today, followUp: followUpDate||"", followUpMemo: followUpMemo||"", infoLetterUnchecked, pendingDischTasks}]);
+    setDischarged(pr => [...pr, {...p, dischargeDate: dischDateStr, followUp: followUpDate||"", followUpMemo: followUpMemo||"", infoLetterUnchecked, pendingDischTasks}]);
     setPatients(pr => pr.filter(x => x.id !== pid));
     setDischargeModal(null);
   };
+  // Auto-process planned discharges: when current date >= plannedDischargeDate, move patient to discharged
+  useEffect(() => {
+    const todayD = pMD(today);
+    if (!todayD) return;
+    patients.forEach(p => {
+      if (!p.plannedDischargeDate) return;
+      const pd = pMD(p.plannedDischargeDate);
+      if (pd && pd <= todayD) {
+        const pendingDischTasks = DISCH_CL.filter(x => !dCL[p.id+"_d_"+x]);
+        const infoLetterUnchecked = !aCL[p.id+"_a_かかりつけ診療情報提供書"];
+        setDischarged(pr => [...pr, {...p, dischargeDate: p.plannedDischargeDate, followUp: p.plannedFollowUp||"", followUpMemo: p.plannedFollowUpMemo||"", infoLetterUnchecked, pendingDischTasks}]);
+        setPatients(pr => pr.filter(x => x.id !== p.id));
+      }
+    });
+  }, [today]);
   const markDischTask = (pid, task) => {
     setDischarged(pr => pr.map(p => p.id === pid ? {...p, pendingDischTasks: (p.pendingDischTasks||[]).filter(t => t !== task)} : p));
   };
@@ -929,9 +975,12 @@ export default function App() {
             <div onClick={() => setExpP(pr => ({...pr,[p.id]:!pr[p.id]}))} style={{cursor:"pointer",color:c.dt,display:"flex"}}><Ch open={isE}/></div>
             <span style={{width:7,height:7,borderRadius:"50%",background:c.dt}}/>
             <span style={{fontSize:11,fontWeight:800}}>{p.name}</span>
+            {p.plannedDischargeDate && (
+              <span style={{fontSize:8,background:"#DBEAFE",color:"#1E40AF",padding:"1px 4px",borderRadius:3,fontWeight:700}}>退院予定 {p.plannedDischargeDate}</span>
+            )}
             <button onClick={() => setPatModal({edit:p})} style={{border:"none",background:"transparent",color:"#94A3B8",fontSize:8,cursor:"pointer",padding:0}}>✎</button>
-            <button onClick={() => { if (window.confirm(p.name+"さんを退院にしますか？")) dischargePat(p.id); }}
-              style={{border:"none",background:"transparent",color:"#F87171",fontSize:7,cursor:"pointer",padding:0,marginLeft:"auto"}}>退院</button>
+            <button onClick={() => dischargePat(p.id)}
+              style={{border:"none",background:"transparent",color:p.plannedDischargeDate?"#3B82F6":"#F87171",fontSize:7,cursor:"pointer",padding:0,marginLeft:"auto"}}>{p.plannedDischargeDate?"退院予定":"退院"}</button>
           </div>
           <div style={{paddingLeft:17,fontSize:8,color:"#64748B",lineHeight:1.5}}>
             {p.room}|{p.age}{p.sex==="F"?"♀":"♂"}|{p.diagnosis}<br/>
@@ -1535,9 +1584,12 @@ export default function App() {
                             <span style={{fontSize:11,color:"rgba(255,255,255,0.8)",marginLeft:8}}>{p.room}{p.doctor?" · "+p.doctor+"Dr":""}</span>
                             {dayNum != null && <span style={{fontSize:10,color:"rgba(255,255,255,0.7)",marginLeft:6}}>入院{dayNum}日目</span>}
                             <div style={{fontSize:11,color:"rgba(255,255,255,0.75)",marginTop:1,lineHeight:1.3}}>{p.diagnosis}</div>
+                            {p.plannedDischargeDate && (
+                              <div style={{fontSize:10,marginTop:3,display:"inline-block",background:"rgba(255,255,255,0.25)",color:"white",padding:"2px 6px",borderRadius:4,fontWeight:700}}>📅 退院予定 {p.plannedDischargeDate}</div>
+                            )}
                           </div>
                           <button onClick={() => dischargePat(p.id)}
-                            style={{border:"none",background:"rgba(255,255,255,0.2)",color:"white",borderRadius:6,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0,marginLeft:8}}>退院</button>
+                            style={{border:"none",background:"rgba(255,255,255,0.2)",color:"white",borderRadius:6,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0,marginLeft:8}}>{p.plannedDischargeDate?"予定変更":"退院"}</button>
                         </div>
 
                         {/* Vitals */}
