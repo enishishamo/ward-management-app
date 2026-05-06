@@ -1330,8 +1330,6 @@ export default function App() {
             <div onClick={() => setRlOpen(pr => ({...pr,[p.id]:!pr[p.id]}))}
               style={{fontSize:8,fontWeight:700,color:"#5C4674",marginBottom:2,cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>
               <Ch open={rlOpen[p.id]}/><span>📋 よく使う検査</span>
-              {tsat != null && <span style={{fontWeight:400,color:"#64748B"}}> TSAT:<b style={{color:tsat<20?"#A6553D":"#334155"}}>{tsat}%</b></span>}
-              {rpi != null && <span style={{fontWeight:400,color:"#64748B"}}> RPI:<b style={{color:rpi<2?"#A6553D":"#334155"}}>{rpi}</b></span>}
             </div>
             {rlOpen[p.id] && (
               <div style={{display:"flex",flexWrap:"wrap",gap:3,alignItems:"center"}}>
