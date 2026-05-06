@@ -29,7 +29,8 @@ const PRESETS = [
 const LAB_F = ["血球","CRP","電解質","腎機能","肝胆道系","その他"];
 const CULTURE_T = ["血液","尿","痰"];
 const R_LABS = [
-  {id:"b12",l:"B12"},{id:"folate",l:"葉酸"},{id:"ferritin",l:"フェリチン"},
+  {id:"hba1c",l:"HbA1c"},{id:"b1",l:"VB1"},{id:"b12",l:"B12"},
+  {id:"folate",l:"葉酸"},{id:"ferritin",l:"フェリチン"},
   {id:"tsh",l:"TSH"},{id:"ft4",l:"FT4"},{id:"cortisol",l:"コルチゾール"}
 ];
 const ADMIT_CL = ["同意書(DNAR)","同意書(身体拘束)","同意書(その他)","病名","入院決定",

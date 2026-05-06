@@ -20,7 +20,8 @@
       body { margin: 0; font-family: 'M PLUS Rounded 1c', -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif; background: #F7F1E1;
         padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom);
         padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
-      input, textarea, select { font-size: 16px !important; }
+      /* Inputs use inherited size by default. iOS auto-zoom is prevented by user-scalable=no in viewport */
+      input, textarea, select { font-family: inherit; font-size: inherit; }
       #root { height: 100dvh; display: flex; flex-direction: column; }
     </style>
   </head>
