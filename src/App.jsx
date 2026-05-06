@@ -723,7 +723,7 @@ export default function App() {
     if (floor === 7) return 5;
     return null;
   };
-  // 定期処方を追加：今日から1週間分（7日）。pending=true で「未処方」状態
+  // 定期処方をサブスクリプション登録：regWeekday 設定。dates[]は処方完了した日のリスト
   const addRegRx = (pid) => {
     const p = patients.find(x => x.id === pid); if (!p) return;
     const wd = regRxWeekday(p.room);
@@ -731,37 +731,20 @@ export default function App() {
       alert("HCUまたは不明な病棟のため、定期処方の曜日が設定されていません");
       return;
     }
-    const start = new Date(); start.setHours(0,0,0,0);
-    const dates = [];
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(start); d.setDate(d.getDate() + i);
-      dates.push(fD(d));
-    }
-    setOrders(prv => ({...prv, [pid]: [...(prv[pid]||[]), {id:Date.now(), type:"med", name:"定期処方", dates, pending:true}]}));
+    setOrders(prv => ({...prv, [pid]: [...(prv[pid]||[]), {id:Date.now(), type:"med", name:"定期処方", regWeekday:wd, dates:[]}]}));
   };
-  // 部屋変更時に定期処方の dates を新しい曜日に合わせてシフト
+  // 部屋変更時に定期処方の曜日を自動更新
   const shiftRegRxForNewRoom = (pid, newRoom) => {
     const newWd = regRxWeekday(newRoom);
+    if (newWd === null) return;
     setOrders(prv => {
       const po = prv[pid]; if (!po) return prv;
       let changed = false;
       const next = po.map(o => {
-        if (o.type !== "med" || o.name !== "定期処方" || !o.dates?.length) return o;
-        const earliest = o.dates.map(d => pMD(d)).filter(Boolean).sort((a,b) => a-b)[0];
-        if (!earliest) return o;
-        // 新しい曜日が無い場合（HCU等）はそのまま
-        if (newWd === null) return o;
-        // Compute new end: earliest 〜 next newWd の前日まで
-        const e = new Date(earliest);
-        let cur = new Date(earliest); cur.setDate(cur.getDate() + 1);
-        // Find next occurrence of newWd starting tomorrow
-        while (cur.getDay() !== newWd) cur.setDate(cur.getDate() + 1);
-        cur.setDate(cur.getDate() - 1); // day before newWd
-        const newDates = [];
-        const d = new Date(earliest);
-        while (d <= cur) { newDates.push(fD(d)); d.setDate(d.getDate() + 1); }
-        if (JSON.stringify(newDates) !== JSON.stringify(o.dates)) { changed = true; return {...o, dates: newDates}; }
-        return o;
+        if (o.type !== "med" || o.name !== "定期処方") return o;
+        if (o.regWeekday === newWd) return o;
+        changed = true;
+        return {...o, regWeekday: newWd};
       });
       return changed ? {...prv, [pid]: next} : prv;
     });
@@ -981,10 +964,20 @@ export default function App() {
       // Build per-order items for med/drip, sorted by earliest expiring first
       const buildItems = type => {
         return po.filter(o => o.type === type).map(o => {
-          const parsed = (o.dates || []).map(d => pMD(d)).filter(Boolean);
+          let parsed = (o.dates || []).map(d => pMD(d)).filter(Boolean);
+          // 定期処方: 各処方日 +6日 が「カバー終了日」
+          if (o.regWeekday != null) {
+            parsed = parsed.map(d => { const e = new Date(d); e.setDate(e.getDate() + 6); return e; });
+            // 未処方なら次のregWeekday を「処方期限日」として扱う
+            if (parsed.length === 0) {
+              const next = new Date(sd);
+              while (next.getDay() !== o.regWeekday) next.setDate(next.getDate() + 1);
+              parsed = [next];
+            }
+          }
           const maxD = parsed.length ? parsed.sort((a,b) => b-a)[0] : null;
           const lvl = urgency(maxD);
-          return { id: o.id, name: o.name || "", dateStr: maxD ? fD(maxD) : null, level: lvl };
+          return { id: o.id, name: o.name || "", dateStr: maxD ? fD(maxD) : null, level: lvl, regWeekday: o.regWeekday };
         }).sort((a,b) => urgRank(a.level) - urgRank(b.level));
       };
       const medItems = buildItems("med");
@@ -1346,10 +1339,7 @@ export default function App() {
                   )}
                   {isImg && !it.reportConfirmed && <button onClick={() => markImgDone(p.id, it.id)} style={{border:"none",background:"#E5EDF4",color:"#2D4759",borderRadius:2,fontSize:8,fontWeight:700,padding:"0 3px",cursor:"pointer"}}>レポ未</button>}
                   {isImg && it.reportConfirmed && <span style={{fontSize:8,color:"#7A9968",fontWeight:700}}>✓済</span>}
-                  {it.pending != null && <button onClick={() => setOrders(prv => ({...prv, [p.id]: prv[p.id].map(x => x.id === it.id ? {...x, pending: !x.pending} : x)}))}
-                    style={{border:"none",background:it.pending?"#F8EBC8":"#E5EFD9",color:it.pending?"#7D6432":"#4A6336",borderRadius:2,fontSize:8,fontWeight:700,padding:"0 4px",cursor:"pointer",flexShrink:0}}>
-                    {it.pending ? "未処方" : "処方済"}
-                  </button>}
+                  {it.regWeekday != null && <span style={{fontSize:8,color:"#5C7A93",fontWeight:700,flexShrink:0,padding:"0 3px"}}>{DOW[it.regWeekday]}曜</span>}
                   <button onClick={() => rmOrd(p.id, it.id)} style={{border:"none",background:"transparent",color:"#D1D5DB",cursor:"pointer",fontSize:9,padding:0}}>✕</button>
                 </div>
               </td>
@@ -1375,6 +1365,46 @@ export default function App() {
                           ) : <div style={{height:"100%",borderBottom:"1px dashed #E2E8F0"}}/>}
                         </div>
                       );
+                    })() : it.regWeekday != null ? (() => {
+                      // 定期処方: 毎週regWeekdayに白丸/黒丸、処方済みなら次のregWeekday-1まで矢印バー
+                      const td = pMD(ds);
+                      if (!td) return null;
+                      const isRegDay = td.getDay() === it.regWeekday;
+                      const prescribed = it.dates?.includes(ds);
+                      // この日が処方バーで覆われているか確認（過去の処方日 + 7日以内）
+                      let coveredByPrescription = null;
+                      (it.dates||[]).forEach(d => {
+                        const pd = pMD(d); if (!pd) return;
+                        const end = new Date(pd); end.setDate(end.getDate() + 6);
+                        if (td >= pd && td <= end) coveredByPrescription = pd;
+                      });
+                      // 前日も含めて覆われているかでバー連結を表示
+                      const prevD = new Date(td); prevD.setDate(prevD.getDate() - 1);
+                      const nextD = new Date(td); nextD.setDate(nextD.getDate() + 1);
+                      let prevCovered = false, nextCovered = false;
+                      (it.dates||[]).forEach(d => {
+                        const pd = pMD(d); if (!pd) return;
+                        const end = new Date(pd); end.setDate(end.getDate() + 6);
+                        if (prevD >= pd && prevD <= end) prevCovered = true;
+                        if (nextD >= pd && nextD <= end) nextCovered = true;
+                      });
+                      const lineLeft = !!coveredByPrescription && prevCovered;
+                      const lineRight = !!coveredByPrescription && nextCovered;
+                      return (
+                        <div onClick={() => isRegDay ? togDot(p.id, it.id, ds, isCul) : null}
+                          style={{cursor:isRegDay?"pointer":"default",height:18,display:"flex",alignItems:"center",justifyContent:"center",position:"relative"}}>
+                          {/* バー（連続線） */}
+                          {coveredByPrescription && <div style={{position:"absolute",top:"50%",left:lineLeft?0:"50%",right:lineRight?0:"50%",height:3,background:c.dt,marginTop:-1.5,zIndex:1}}/>}
+                          {/* 矢印先端（バーの最終日） */}
+                          {coveredByPrescription && !nextCovered && <div style={{position:"absolute",top:"50%",left:"calc(50% - 1px)",width:0,height:0,borderTop:"4px solid transparent",borderBottom:"4px solid transparent",borderLeft:"5px solid "+c.dt,marginTop:-4,zIndex:1}}/>}
+                          {/* regWeekday の丸 */}
+                          {isRegDay && (
+                            prescribed
+                              ? <div style={{width:12,height:12,borderRadius:"50%",background:c.dt,zIndex:2,position:"relative"}}/>
+                              : <div style={{width:12,height:12,borderRadius:"50%",border:"2px solid "+c.dt,background:"#FBF8F0",zIndex:2,position:"relative"}}/>
+                          )}
+                        </div>
+                      );
                     })() : (() => {
                       const hd2 = it.dates?.includes(ds);
                       let cd = null;
@@ -1384,18 +1414,13 @@ export default function App() {
                       }
                       const isR = it.resultDate === ds;
                       const imgOk = cat.type === "img" && it.reportConfirmed;
-                      const isPending = it.pending; // 定期処方など、未処方状態
                       return (
                         <div onClick={() => togDot(p.id, it.id, ds, isCul)}
                           style={{cursor:"pointer",height:18,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                          {hd2 ? (
-                            isPending
-                              ? <div style={{width:12,height:12,borderRadius:"50%",border:"2px solid "+c.dt,background:"transparent"}}/>
-                              : <div style={{width:12,height:12,borderRadius:"50%",background:imgOk?"#7A9968":c.dt,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                          {hd2 ? <div style={{width:12,height:12,borderRadius:"50%",background:imgOk?"#7A9968":c.dt,display:"flex",alignItems:"center",justifyContent:"center"}}>
                                   {cd && <span style={{fontSize:5,color:"white",fontWeight:800}}>{cd}</span>}
                                   {imgOk && <span style={{fontSize:5,color:"white",fontWeight:800}}>✓</span>}
                                 </div>
-                          )
                           : isR ? <div style={{width:12,height:12,borderRadius:"50%",background:"#7A9968",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:8,color:"white",fontWeight:800}}>✓</span></div>
                           : cd ? <div style={{width:10,height:10,borderRadius:"50%",border:"2px dotted "+c.bar,display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:5,color:c.tx,fontWeight:700}}>{cd}</span></div>
                           : <div style={{width:8,height:8,borderRadius:"50%",border:"1px dashed #CBD5E1"}}/>}
