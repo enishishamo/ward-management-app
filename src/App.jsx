@@ -28,10 +28,20 @@ const PRESETS = [
 ];
 const LAB_F = ["血球","CRP","電解質","腎機能","肝胆道系","その他"];
 const CULTURE_T = ["血液","尿","痰"];
+// 各検査の異常判定（true = 異常値）
+// HbA1c: ≥ 6.5 (糖尿病) | B1: < 20 (欠乏) | B12: < 200 (欠乏)
+// 葉酸: < 2 (欠乏) | フェリチン: ≤ 30 (鉄欠乏疑い)
+// TSH: < 0.4 or > 4.5 | FT4: < 0.9 or > 1.7
+// コルチゾール: < 5 (副腎不全疑い)
 const R_LABS = [
-  {id:"hba1c",l:"HbA1c"},{id:"b1",l:"VB1"},{id:"b12",l:"B12"},
-  {id:"folate",l:"葉酸"},{id:"ferritin",l:"フェリチン"},
-  {id:"tsh",l:"TSH"},{id:"ft4",l:"FT4"},{id:"cortisol",l:"コルチゾール"}
+  {id:"hba1c",l:"HbA1c",ab:v=>v>=6.5},
+  {id:"b1",l:"B1",ab:v=>v<20},
+  {id:"b12",l:"B12",ab:v=>v<200},
+  {id:"folate",l:"葉酸",ab:v=>v<2},
+  {id:"ferritin",l:"フェリチン",ab:v=>v<=30},
+  {id:"tsh",l:"TSH",ab:v=>v<0.4||v>4.5},
+  {id:"ft4",l:"FT4",ab:v=>v<0.9||v>1.7},
+  {id:"cortisol",l:"コルチゾール",ab:v=>v<5}
 ];
 const ADMIT_CL = ["同意書(DNAR)","同意書(身体拘束)","同意書(その他)","病名","入院決定",
   "入院カルテ1号紙","複合セット・指示","他科依頼","入院計画書","IC記録",
@@ -695,6 +705,38 @@ export default function App() {
   const markImgDone = (pid, oid) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => o.id === oid ? {...o, reportConfirmed: true} : o)}));
   const updGram = (pid, oid, val) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => o.id === oid ? {...o, gramResult: val} : o)}));
   const addCultureOrd = (pid, specimen) => setOrders(p => ({...p, [pid]: [...(p[pid]||[]), {id:Date.now(), type:"culture", specimen, gramResult:"", dates:[], resultDate:""}]}));
+  // 定期処方の曜日マップ（病棟階数→曜日番号: 0=日,1=月,...,5=金,6=土）
+  // 4階:火(2), 5階:水(3), 6階:木(4), 7階:金(5), HCU:なし
+  const regRxWeekday = room => {
+    if (!room || room === "HCU") return null;
+    const floor = parseInt(room[0]);
+    if (floor === 4) return 2;
+    if (floor === 5) return 3;
+    if (floor === 6) return 4;
+    if (floor === 7) return 5;
+    return null;
+  };
+  // 定期処方を追加（次回〜12週分の該当曜日に予定を入れる）
+  const addRegRx = (pid) => {
+    const p = patients.find(x => x.id === pid); if (!p) return;
+    const wd = regRxWeekday(p.room);
+    if (wd === null) {
+      alert("HCUまたは不明な病棟のため、定期処方の曜日が設定されていません");
+      return;
+    }
+    // Generate dates: next occurrences of weekday wd, 12 weeks
+    const start = new Date();
+    start.setHours(0,0,0,0);
+    const dates = [];
+    let d = new Date(start);
+    // Find the first occurrence (today or future) of target weekday
+    while (d.getDay() !== wd) d.setDate(d.getDate() + 1);
+    for (let i = 0; i < 12; i++) {
+      dates.push(fD(d));
+      d.setDate(d.getDate() + 7);
+    }
+    setOrders(p => ({...p, [pid]: [...(p[pid]||[]), {id:Date.now(), type:"med", name:"定期処方", dates}]}));
+  };
 
   // Sync TODO task → weekly schedule orders
   const syncTaskToOrder = (pid, newCell, oldCell) => {
@@ -1229,6 +1271,13 @@ export default function App() {
                         style={{border:"1px solid #E2E8F0",background:"white",borderRadius:4,fontSize:9,padding:"0 4px",cursor:"pointer",color:c.dt,fontWeight:700}}>+{sp}</button>
                     ))}
                   </div>
+                ) : cat.type === "med" ? (
+                  <div style={{display:"flex",gap:2,marginLeft:"auto"}}>
+                    <button onClick={() => addRegRx(p.id)}
+                      style={{border:"1px solid #E2E8F0",background:"white",borderRadius:4,fontSize:9,padding:"0 4px",cursor:"pointer",color:c.dt,fontWeight:700}}
+                      title={"定期処方（"+(regRxWeekday(p.room)!==null?DOW[regRxWeekday(p.room)]+"曜日":"病棟未対応")+"）"}>+定期</button>
+                    <button onClick={() => addOrd(p.id, cat.type)} style={{border:"none",background:"transparent",color:c.dt,fontSize:9,cursor:"pointer",padding:"0 2px",fontWeight:700}}>＋</button>
+                  </div>
                 ) : (
                   <button onClick={() => addOrd(p.id, cat.type)} style={{border:"none",background:"transparent",color:c.dt,fontSize:8,cursor:"pointer",padding:"0 2px",fontWeight:700,marginLeft:"auto"}}>＋</button>
                 )}
@@ -1335,32 +1384,35 @@ export default function App() {
               <div style={{display:"flex",flexWrap:"wrap",gap:3,alignItems:"center"}}>
                 {R_LABS.map(lb => {
                   const v = rl[lb.id] || {done:false,value:""};
+                  const num = parseFloat(v.value);
+                  const isAbn = !isNaN(num) && lb.ab && lb.ab(num);
                   return (
-                    <div key={lb.id} style={{display:"flex",alignItems:"center",gap:2,padding:"1px 3px",borderRadius:3,background:v.done?"#E5EFD9":"white",border:"1px solid "+(v.done?"#B8CDA0":"#E2E8F0")}}>
+                    <div key={lb.id} style={{display:"flex",alignItems:"center",gap:2,padding:"1px 3px",borderRadius:3,background:"white",border:"1px solid #E2E8F0"}}>
                       <div onClick={() => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],[lb.id]:{...v,done:!v.done}}}))} style={ck(v.done,c.dt,9)}>{v.done && <Tk s={4}/>}</div>
                       <span style={{fontSize:9,color:"#64748B",fontWeight:600}}>{lb.l}</span>
-                      <input value={v.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],[lb.id]:{...v,value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:9,width:24,textAlign:"center"}}/>
+                      <input value={v.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],[lb.id]:{...v,value:e.target.value}}}))} placeholder="—"
+                        style={{...ip,fontSize:9,width:28,textAlign:"center",fontWeight:isAbn?700:400,color:isAbn?"#A6553D":"#334155"}}/>
                     </div>
                   );
                 })}
-                {/* TSAT group: Fe + TIBC → TSAT */}
-                <div style={{display:"flex",alignItems:"center",gap:2,padding:"1px 3px",borderRadius:3,background:"#F8EBC8",border:"1px solid #E8C97A"}}>
-                  <span style={{fontSize:9,color:"#7D6432",fontWeight:700}}>Fe</span>
-                  <input value={rl.fe?.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],fe:{...(pr[p.id]?.fe||{}),value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:9,width:22,textAlign:"center"}}/>
-                  <span style={{fontSize:9,color:"#7D6432",fontWeight:700}}>TIBC</span>
-                  <input value={rl.tibc?.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],tibc:{...(pr[p.id]?.tibc||{}),value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:9,width:24,textAlign:"center"}}/>
-                  <span style={{fontSize:9,color:"#7D6432",fontWeight:700}}>→TSAT</span>
-                  <b style={{fontSize:8,color:tsat!=null && tsat<20?"#A6553D":"#7D6432"}}>{tsat!=null?tsat+"%":"—"}</b>
+                {/* TSAT: Fe + TIBC → TSAT (異常値=18以下で赤) */}
+                <div style={{display:"flex",alignItems:"center",gap:2,padding:"1px 3px",borderRadius:3,background:"white",border:"1px solid #E2E8F0"}}>
+                  <span style={{fontSize:9,color:"#64748B",fontWeight:600}}>Fe</span>
+                  <input value={rl.fe?.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],fe:{...(pr[p.id]?.fe||{}),value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:9,width:24,textAlign:"center"}}/>
+                  <span style={{fontSize:9,color:"#64748B",fontWeight:600}}>TIBC</span>
+                  <input value={rl.tibc?.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],tibc:{...(pr[p.id]?.tibc||{}),value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:9,width:28,textAlign:"center"}}/>
+                  <span style={{fontSize:9,color:"#64748B",fontWeight:600}}>→TSAT</span>
+                  <b style={{fontSize:9,color:tsat!=null && tsat<=18?"#A6553D":"#334155"}}>{tsat!=null?tsat+"%":"—"}</b>
                 </div>
-                {/* RPI group: Retic + Hct → RPI */}
-                <div style={{display:"flex",alignItems:"center",gap:2,padding:"1px 3px",borderRadius:3,background:"#F5E5DC",border:"1px solid #E8AE94"}}
-                  title="網赤血球は%表記の場合と‰表記の場合あり、自施設で確認">
-                  <span style={{fontSize:9,color:"#7D3823",fontWeight:700}}>網赤%</span>
-                  <input value={rl.retic?.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],retic:{...(pr[p.id]?.retic||{}),value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:9,width:24,textAlign:"center"}}/>
-                  <span style={{fontSize:9,color:"#7D3823",fontWeight:700}}>Hct</span>
-                  <input value={rl.hct?.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],hct:{...(pr[p.id]?.hct||{}),value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:9,width:22,textAlign:"center"}}/>
-                  <span style={{fontSize:9,color:"#7D3823",fontWeight:700}}>→RPI</span>
-                  <b style={{fontSize:8,color:rpi!=null && rpi<2?"#A6553D":"#7D3823"}}>{rpi!=null?rpi:"—"}</b>
+                {/* RPI: 網赤+Hct → RPI (異常値<2で赤) */}
+                <div style={{display:"flex",alignItems:"center",gap:2,padding:"1px 3px",borderRadius:3,background:"white",border:"1px solid #E2E8F0"}}
+                  title="網赤血球は%/‰両表記あり、自施設で確認">
+                  <span style={{fontSize:9,color:"#64748B",fontWeight:600}}>網赤%</span>
+                  <input value={rl.retic?.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],retic:{...(pr[p.id]?.retic||{}),value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:9,width:28,textAlign:"center"}}/>
+                  <span style={{fontSize:9,color:"#64748B",fontWeight:600}}>Hct</span>
+                  <input value={rl.hct?.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],hct:{...(pr[p.id]?.hct||{}),value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:9,width:24,textAlign:"center"}}/>
+                  <span style={{fontSize:9,color:"#64748B",fontWeight:600}}>→RPI</span>
+                  <b style={{fontSize:9,color:rpi!=null && rpi<2?"#A6553D":"#334155"}}>{rpi!=null?rpi:"—"}</b>
                 </div>
               </div>
             )}
