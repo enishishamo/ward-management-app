@@ -556,23 +556,13 @@ export default function App() {
     window.addEventListener("resize", fn);
     return () => window.removeEventListener("resize", fn);
   }, []);
-  // Global drag listeners for task reorder
-  useEffect(() => {
-    const mv = e => onDragMove(e);
-    const end = () => onDragEnd();
-    window.addEventListener("mousemove", mv);
-    window.addEventListener("mouseup", end);
-    window.addEventListener("touchmove", mv, {passive:false});
-    window.addEventListener("touchend", end);
-    return () => { window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", end); window.removeEventListener("touchmove", mv); window.removeEventListener("touchend", end); };
-  });
+  // Drag uses Pointer Events with setPointerCapture (no global listeners needed)
   const [mobileTab, setMobileTab] = useState("todo");
   const [todayView, setTodayView] = useState("summary"); // "summary" | "cards"
   const [showAddAM, setShowAddAM] = useState({});
   const [showAddPM, setShowAddPM] = useState({});
   const [summaryAddMenu, setSummaryAddMenu] = useState(null); // {taskKey, pid, pfx}
-  const [dragTask, setDragTask] = useState(null); // {pfx, slot, pid, startY}
-  const dragRef = useRef(null);
+  const [dragTask, setDragTask] = useState(null); // {pfx, slot, pid}
   const [expLabMobile, setExpLabMobile] = useState({});
   const [dischargeModal, setDischargeModal] = useState(null); // {patient}
   const [panel, setPanel] = useState("schedule");
@@ -802,31 +792,42 @@ export default function App() {
       return {...prev, [kA]: prev[kB]||emptyCell(), [kB]: prev[kA]||emptyCell()};
     });
   };
-  // Drag-to-reorder handlers for touch/mouse
-  const ROW_H = 44; // approximate row height for swap threshold
-  const onDragStart = (e, pfx, slot, pid) => {
-    const y = e.touches ? e.touches[0].clientY : e.clientY;
-    dragRef.current = { pfx, slot, pid, startY: y, currentSlot: slot };
-    setDragTask({ pfx, slot, pid });
-    if (e.touches) e.preventDefault();
-  };
-  const onDragMove = (e) => {
-    if (!dragRef.current) return;
-    const y = e.touches ? e.touches[0].clientY : e.clientY;
-    const { pfx, pid, startY, currentSlot } = dragRef.current;
-    const dy = y - startY;
-    const max = pfx === "am" ? AM - 1 : PM_R - 1;
-    if (dy > ROW_H && currentSlot < max) {
-      swapTask(pfx, currentSlot, currentSlot + 1, pid);
-      dragRef.current = { ...dragRef.current, startY: startY + ROW_H, currentSlot: currentSlot + 1 };
-      setDragTask(prev => prev ? { ...prev, slot: currentSlot + 1 } : null);
-    } else if (dy < -ROW_H && currentSlot > 0) {
-      swapTask(pfx, currentSlot, currentSlot - 1, pid);
-      dragRef.current = { ...dragRef.current, startY: startY - ROW_H, currentSlot: currentSlot - 1 };
-      setDragTask(prev => prev ? { ...prev, slot: currentSlot - 1 } : null);
+  // Drag-to-reorder using document-level pointer listeners (works mouse/touch/pen)
+  const ROW_H = 40;
+  const dragHandlers = (pfx, slot, pid) => ({
+    onPointerDown: e => {
+      e.preventDefault();
+      const startY = e.clientY;
+      let currentSlot = slot;
+      let lastSwapY = startY;
+      const max = pfx === "am" ? AM - 1 : PM_R - 1;
+      setDragTask({ pfx, slot, pid });
+      const onMove = ev => {
+        ev.preventDefault();
+        const dy = ev.clientY - lastSwapY;
+        if (dy > ROW_H && currentSlot < max) {
+          swapTask(pfx, currentSlot, currentSlot + 1, pid);
+          currentSlot += 1;
+          lastSwapY += ROW_H;
+          setDragTask({ pfx, slot: currentSlot, pid });
+        } else if (dy < -ROW_H && currentSlot > 0) {
+          swapTask(pfx, currentSlot, currentSlot - 1, pid);
+          currentSlot -= 1;
+          lastSwapY -= ROW_H;
+          setDragTask({ pfx, slot: currentSlot, pid });
+        }
+      };
+      const onUp = () => {
+        document.removeEventListener("pointermove", onMove);
+        document.removeEventListener("pointerup", onUp);
+        document.removeEventListener("pointercancel", onUp);
+        setDragTask(null);
+      };
+      document.addEventListener("pointermove", onMove, { passive: false });
+      document.addEventListener("pointerup", onUp);
+      document.addEventListener("pointercancel", onUp);
     }
-  };
-  const onDragEnd = () => { dragRef.current = null; setDragTask(null); };
+  });
   const isPast = pMD(selDateStr) < pMD(today);
   const isFuture = pMD(selDateStr) > pMD(today);
 
@@ -975,8 +976,7 @@ export default function App() {
               <td key={p.id} style={{padding:"2px 3px",borderBottom:ri===cnt-1?"2px solid #E2E8F0":"1px solid #F7F1E1",borderLeft:"1px solid #F7F1E1",verticalAlign:"top"}}>
                 <div style={{display:"flex",alignItems:"flex-start",gap:1}}>
                   {cell.presetId && (
-                    <div onMouseDown={e => onDragStart(e,pfx,ri,p.id)}
-                      onTouchStart={e => onDragStart(e,pfx,ri,p.id)}
+                    <div {...dragHandlers(pfx,ri,p.id)}
                       style={{cursor:"grab",color:"#CBD5E1",fontSize:8,flexShrink:0,userSelect:"none",touchAction:"none",padding:"2px 0",marginTop:1}}>⠿</div>
                   )}
                   <div style={{flex:1,minWidth:0}}>
@@ -1494,8 +1494,7 @@ export default function App() {
                       return (
                         <div style={{display:"flex",alignItems:"flex-start",gap:2,padding:"2px 0",
                           background:dragTask?.pfx===pfx&&dragTask?.slot===slot&&dragTask?.pid===pid?"#F0F4F9":"transparent"}}>
-                          <div onMouseDown={e => onDragStart(e,pfx,slot,pid)}
-                            onTouchStart={e => onDragStart(e,pfx,slot,pid)}
+                          <div {...dragHandlers(pfx,slot,pid)}
                             style={{cursor:"grab",color:"#CBD5E1",fontSize:9,flexShrink:0,userSelect:"none",touchAction:"none",padding:"1px 0"}}>⠿</div>
                           <div onClick={() => compT(taskKey)} style={{...ck(cell.checked,c.dt,14),marginTop:1,flexShrink:0}}>{cell.checked&&<Tk s={8}/>}</div>
                           <span style={{fontSize:10,color:cell.checked?"#CBD5E1":"#334155",textDecoration:cell.checked?"line-through":"none",lineHeight:1.3,wordBreak:"break-all"}}>
@@ -1802,8 +1801,7 @@ export default function App() {
                               background:dragTask?.pfx==="am"&&dragTask?.slot===slot&&dragTask?.pid===p.id?"#F0F4F9":"transparent",
                               transition:"background 0.15s"}}>
                               <div style={{display:"flex",alignItems:"center",gap:8,opacity:cell.checked?0.45:1}}>
-                                <div onMouseDown={e => onDragStart(e,"am",slot,p.id)}
-                                  onTouchStart={e => onDragStart(e,"am",slot,p.id)}
+                                <div {...dragHandlers("am",slot,p.id)}
                                   style={{cursor:"grab",color:"#94A3B8",fontSize:14,flexShrink:0,padding:"4px 2px",userSelect:"none",touchAction:"none"}}>⠿</div>
                                 <div onClick={() => compT(key)} style={ck(cell.checked,c.dt,22)}>{cell.checked && <Tk s={13}/>}</div>
                                 {cell.type === "free"
@@ -1877,8 +1875,7 @@ export default function App() {
                               background:dragTask?.pfx==="pm"&&dragTask?.slot===slot&&dragTask?.pid===p.id?"#F5EFF8":"transparent",
                               transition:"background 0.15s"}}>
                               <div style={{display:"flex",alignItems:"center",gap:8,opacity:cell.checked?0.45:1}}>
-                                <div onMouseDown={e => onDragStart(e,"pm",slot,p.id)}
-                                  onTouchStart={e => onDragStart(e,"pm",slot,p.id)}
+                                <div {...dragHandlers("pm",slot,p.id)}
                                   style={{cursor:"grab",color:"#94A3B8",fontSize:14,flexShrink:0,padding:"4px 2px",userSelect:"none",touchAction:"none"}}>⠿</div>
                                 <div onClick={() => compT(key)} style={ck(cell.checked,c.dt,22)}>{cell.checked && <Tk s={13}/>}</div>
                                 {cell.type === "free"
