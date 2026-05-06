@@ -515,6 +515,8 @@ export default function App() {
   const [orders, setOrders] = useState(() => loadLS("ward_orders_v2", {}));
   const [patCats, setPatCats] = useState(() => loadLS("ward_patCats_v2", {}));
   const [rLabs, setRLabs] = useState(() => loadLS("ward_rLabs_v2", {}));
+  // orderNoNeeded[pid] = {med:bool, drip:bool, lab:bool} — explicitly marked "なし"
+  const [orderNoNeeded, setOrderNoNeeded] = useState(() => loadLS("ward_orderNoNeeded", {}));
   const [patModal, setPatModal] = useState(null);
   const [catModal, setCatModal] = useState(null);
   const [showCatMenu, setShowCatMenu] = useState({});
@@ -557,6 +559,15 @@ export default function App() {
   useEffect(() => { saveLS("ward_orders_v2", orders); }, [orders]);
   useEffect(() => { saveLS("ward_patCats_v2", patCats); }, [patCats]);
   useEffect(() => { saveLS("ward_rLabs_v2", rLabs); }, [rLabs]);
+  useEffect(() => { saveLS("ward_orderNoNeeded", orderNoNeeded); }, [orderNoNeeded]);
+  // Toggle "なし" flag; if order exists for that type, also remove the flag
+  const toggleOrderNoNeeded = (pid, type) => {
+    setOrderNoNeeded(pr => {
+      const cur = pr[pid] || {};
+      const next = {...cur, [type]: !cur[type]};
+      return {...pr, [pid]: next};
+    });
+  };
   // Migrate old drip_main/med bar orders (startDate/endDate) to dates[]
   useEffect(() => {
     setOrders(prev => {
@@ -1638,11 +1649,12 @@ export default function App() {
                               const hasMultiple = items.filter(it => it.name).length > 1;
                               const expKey = p.id + "_" + item.key;
                               const isExp = orderExpand[expKey];
-                              const isUrgent = s.level === "expired" || s.level === "today" || s.level === "none";
-                              const isWarn = s.level === "tomorrow";
-                              const bgC = isUrgent ? "#FEE2E2" : isWarn ? "#FEF3C7" : s.dateStr ? "#F0FDF4" : "#F8FAFC";
-                              const bdC = isUrgent ? "#FCA5A5" : isWarn ? "#FDE68A" : s.dateStr ? "#86EFAC" : "#E2E8F0";
-                              const txC = isUrgent ? "#DC2626" : isWarn ? "#92400E" : s.dateStr ? "#166534" : "#94A3B8";
+                              const noNeed = !s.dateStr && (orderNoNeeded[p.id]||{})[item.key];
+                              const isUrgent = !noNeed && (s.level === "expired" || s.level === "today" || s.level === "none");
+                              const isWarn = !noNeed && s.level === "tomorrow";
+                              const bgC = noNeed ? "#F0FDF4" : isUrgent ? "#FEE2E2" : isWarn ? "#FEF3C7" : s.dateStr ? "#F0FDF4" : "#F8FAFC";
+                              const bdC = noNeed ? "#86EFAC" : isUrgent ? "#FCA5A5" : isWarn ? "#FDE68A" : s.dateStr ? "#86EFAC" : "#E2E8F0";
+                              const txC = noNeed ? "#166534" : isUrgent ? "#DC2626" : isWarn ? "#92400E" : s.dateStr ? "#166534" : "#94A3B8";
                               return (
                                 <div key={item.key}>
                                   <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:isExp?"8px 8px 0 0":8,background:bgC,border:"1px solid "+bdC,borderBottom:isExp?"none":"1px solid "+bdC}}>
@@ -1650,10 +1662,16 @@ export default function App() {
                                     <span style={{fontSize:12,fontWeight:700,color:txC,minWidth:36}}>{item.label}</span>
                                     <span onClick={() => { if(hasMultiple) setOrderExpand(prev => ({...prev,[expKey]:!prev[expKey]})); }}
                                       style={{fontSize:13,fontWeight:700,color:txC,flex:1,cursor:hasMultiple?"pointer":"default"}}>
-                                      {s.dateStr ? item.prefix + addDw(s.dateStr) : item.noLabel}
+                                      {s.dateStr ? item.prefix + addDw(s.dateStr) : (noNeed ? "✓ なし" : item.noLabel)}
                                       {isUrgent && s.dateStr && " ⚠"}
                                       {hasMultiple && <span style={{fontSize:10,marginLeft:4,color:txC,opacity:0.7}}>{isExp?"▲":"▼"}{items.filter(it=>it.name).length}件</span>}
                                     </span>
+                                    {!s.dateStr && (
+                                      <button onClick={() => toggleOrderNoNeeded(p.id, item.key)}
+                                        style={{border:"1px solid "+bdC,background:noNeed?"#22C55E":"white",borderRadius:6,padding:"3px 8px",fontSize:11,color:noNeed?"white":txC,cursor:"pointer",fontWeight:600}}>
+                                        {noNeed ? "✓なし" : "なし"}
+                                      </button>
+                                    )}
                                     <button onClick={() => setOrderExtMenu(prev => prev?.pid===p.id&&prev?.type===item.key&&!prev?.orderId ? null : {pid:p.id,type:item.key})}
                                       style={{border:"1px solid "+bdC,background:"white",borderRadius:6,padding:"3px 8px",fontSize:11,color:txC,cursor:"pointer",fontWeight:600}}>
                                       延長
@@ -2169,20 +2187,21 @@ export default function App() {
                     const abxs = po.filter(o => o.type === "abx" && o.name && notExpAbx(o));
                     const labs = po.filter(o => o.type === "lab" && o.dates?.some(d => { const dd = pMD(d); return dd && sd && dd >= sd; }));
                     // Missing detection: section is empty (no items) for med/drip/lab
-                    const missMed = meds.length === 0 && os.med?.level !== "ok";
-                    const missDrip = drips.length === 0 && os.drip?.level !== "ok";
-                    const missLab = labs.length === 0;
+                    const noNeed = orderNoNeeded[p.id] || {};
+                    const missMed = meds.length === 0 && os.med?.level !== "ok" && !noNeed.med;
+                    const missDrip = drips.length === 0 && os.drip?.level !== "ok" && !noNeed.drip;
+                    const missLab = labs.length === 0 && !noNeed.lab;
                     const sumColor = lvl => lvl==="expired"||lvl==="today"||lvl==="none" ? "#DC2626" : lvl==="tomorrow" ? "#92400E" : "#166534";
                     return (
                       <td key={p.id} style={{padding:"2px 3px",borderTop:"2px solid #FED7AA",borderBottom:"2px solid #FED7AA",borderLeft:"1px solid #F1F5F9",verticalAlign:"top",fontSize:7,color:"#64748B"}}>
                         {/* 内服 */}
                         <div style={{borderBottom:"1px dashed #FED7AA",paddingBottom:1,marginBottom:1}}>
-                          <span style={{fontWeight:700,color:sumColor(os.med?.level)}}>💊 {os.med?.dateStr ? "〜"+addDw(os.med.dateStr) : missMed?"未設定 ⚠":"—"}</span>
+                          <span style={{fontWeight:700,color:os.med?.dateStr?sumColor(os.med?.level):noNeed.med?"#166534":missMed?"#DC2626":"#94A3B8"}}>💊 {os.med?.dateStr ? "〜"+addDw(os.med.dateStr) : noNeed.med?"✓なし":missMed?"未設定 ⚠":"—"}</span>
                           {meds.map(o => <div key={o.id} style={{paddingLeft:8}}>・{o.name}</div>)}
                         </div>
                         {/* 点滴 */}
                         <div style={{borderBottom:"1px dashed #FED7AA",paddingBottom:1,marginBottom:1}}>
-                          <span style={{fontWeight:700,color:sumColor(os.drip?.level)}}>💉 {os.drip?.dateStr ? "〜"+addDw(os.drip.dateStr) : missDrip?"未設定 ⚠":"—"}</span>
+                          <span style={{fontWeight:700,color:os.drip?.dateStr?sumColor(os.drip?.level):noNeed.drip?"#166534":missDrip?"#DC2626":"#94A3B8"}}>💉 {os.drip?.dateStr ? "〜"+addDw(os.drip.dateStr) : noNeed.drip?"✓なし":missDrip?"未設定 ⚠":"—"}</span>
                           {drips.map(o => <div key={o.id} style={{paddingLeft:8}}>・{o.name}</div>)}
                         </div>
                         {/* 抗菌薬 */}
@@ -2198,7 +2217,7 @@ export default function App() {
                         )}
                         {/* 検査 */}
                         <div style={{borderBottom:"1px dashed #FED7AA",paddingBottom:1,marginBottom:1}}>
-                          <span style={{fontWeight:700,color:missLab?"#DC2626":"#0369A1"}}>🩸 {os.lab?.dateStr ? "次"+addDw(os.lab.dateStr) : "未予約 ⚠"}</span>
+                          <span style={{fontWeight:700,color:os.lab?.dateStr?"#0369A1":noNeed.lab?"#166534":missLab?"#DC2626":"#94A3B8"}}>🩸 {os.lab?.dateStr ? "次"+addDw(os.lab.dateStr) : noNeed.lab?"✓なし":"未予約 ⚠"}</span>
                           {labs.map(o => <div key={o.id} style={{paddingLeft:8}}>・{o.name}</div>)}
                         </div>
                         {/* 家族電話アラート */}
