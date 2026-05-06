@@ -1563,26 +1563,24 @@ export default function App() {
                                   ))}
                                 </tr>
                               ))}
-                              {/* Consults row */}
-                              <tr style={{background:"#FFF7ED"}}>
-                                <td style={{...stickyL,width:36,textAlign:"center",fontWeight:700,fontSize:9,color:"#92400E",
-                                  background:"#FEF3C7",borderRight:"2px solid #FDE68A",borderTop:"2px solid #FDE68A",padding:"4px 2px",lineHeight:1.3}}>
-                                  上級医<br/>相談
+                              {/* Karte row */}
+                              <tr style={{background:"#EFF6FF"}}>
+                                <td style={{...stickyL,width:36,textAlign:"center",fontWeight:700,fontSize:9,color:"#1E40AF",
+                                  background:"#DBEAFE",borderRight:"2px solid #93C5FD",borderTop:"2px solid #93C5FD",padding:"4px 2px",lineHeight:1.3}}>
+                                  📝<br/>カルテ
                                 </td>
                                 {filteredPats.map(p => {
-                                  const its = (consults[p.id]||[]).filter(x=>x.text);
+                                  const k = curKarte[p.id]||{checked:false,memo:""};
                                   const c = COL[p.color];
                                   return (
-                                    <td key={p.id} style={{...cellSt(p),borderTop:"2px solid #FDE68A"}}>
-                                      {its.map(it => (
-                                        <div key={it.id} style={{display:"flex",alignItems:"flex-start",gap:3,padding:"2px 0"}}>
-                                          <div onClick={() => setConsults(pr=>({...pr,[p.id]:(pr[p.id]||[]).map(x=>x.id===it.id?{...x,checked:!x.checked}:x)}))}
-                                            style={{...ck(it.checked,c.dt,14),marginTop:1,flexShrink:0}}>{it.checked&&<Tk s={8}/>}</div>
-                                          {it.urgent&&<span style={{fontSize:9,color:"#DC2626",fontWeight:800,flexShrink:0}}>!</span>}
-                                          <span style={{fontSize:10,color:it.checked?"#CBD5E1":"#334155",textDecoration:it.checked?"line-through":"none",lineHeight:1.3,wordBreak:"break-all"}}>{it.text.slice(0,10)}</span>
-                                        </div>
-                                      ))}
-                                      {its.length===0&&<div style={{width:14,height:14,borderRadius:3,border:"1px solid #E2E8F0",margin:"3px 0"}}/>}
+                                    <td key={p.id} style={{...cellSt(p),borderTop:"2px solid #93C5FD",background:k.checked?"#F0FDF4":"transparent"}}>
+                                      <div style={{display:"flex",alignItems:"flex-start",gap:3,padding:"2px 0"}}>
+                                        <div onClick={() => setKarte(pr => ({...pr,[p.id]:{...pr[p.id],checked:!k.checked}}))}
+                                          style={{...ck(k.checked,c.dt,14),marginTop:1,flexShrink:0}}>{k.checked&&<Tk s={8}/>}</div>
+                                        <span style={{fontSize:10,color:k.checked?"#22C55E":"#334155",fontWeight:600,lineHeight:1.3,wordBreak:"break-all"}}>
+                                          {k.checked?"済":(k.memo||"").slice(0,10)||"未"}
+                                        </span>
+                                      </div>
                                     </td>
                                   );
                                 })}
@@ -1982,7 +1980,24 @@ export default function App() {
                     ); })}
                   </div>
 
-                  {/* Duty notes (other patients) */}
+                  {/* Study list */}
+                  <div style={{background:"white",borderRadius:14,marginBottom:12,padding:"10px 14px",boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                      <span style={{fontSize:13,fontWeight:700,color:"#6D28D9"}}>📚 勉強リスト</span>
+                      <button onClick={() => setStudyList(pr => [...pr,{id:Date.now(),text:"",checked:false}])}
+                        style={{border:"none",background:"#A78BFA",color:"white",borderRadius:6,padding:"2px 8px",fontSize:12,fontWeight:700,cursor:"pointer"}}>＋</button>
+                    </div>
+                    {studyList.map(it => (
+                      <div key={it.id} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 0"}}>
+                        <div onClick={() => setStudyList(pr => pr.map(x => x.id===it.id?{...x,checked:!x.checked}:x))} style={ck(it.checked,"#8B5CF6",20)}>{it.checked && <Tk s={12}/>}</div>
+                        <input value={it.text} onChange={e => setStudyList(pr => pr.map(x => x.id===it.id?{...x,text:e.target.value}:x))}
+                          placeholder="テーマ..." style={{...ip,fontSize:14,flex:1,textDecoration:it.checked?"line-through":"none",opacity:it.checked?0.4:1,width:"auto"}}/>
+                        <button onClick={() => setStudyList(pr => pr.filter(x => x.id !== it.id))} style={{border:"none",background:"transparent",color:"#CBD5E1",fontSize:18,cursor:"pointer",padding:"0 2px"}}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Duty notes (other patients) - placed at bottom (not used daily) */}
                   {(() => {
                     const notes = dutyNotes[selDateStr] || [];
                     const updateNotes = fn => setDutyNotes(pr => ({...pr, [selDateStr]: fn(pr[selDateStr]||[])}));
@@ -1997,7 +2012,6 @@ export default function App() {
                         await navigator.clipboard.writeText(text);
                         alert("申し送り文をコピーしました\nWORKSなどに貼り付けて共有できます");
                       } catch {
-                        // Fallback for non-secure contexts
                         const ta = document.createElement("textarea"); ta.value = text;
                         document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove();
                         alert("コピーしました");
@@ -2041,23 +2055,6 @@ export default function App() {
                       </div>
                     );
                   })()}
-
-                  {/* Study list */}
-                  <div style={{background:"white",borderRadius:14,marginBottom:12,padding:"10px 14px",boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}}>
-                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                      <span style={{fontSize:13,fontWeight:700,color:"#6D28D9"}}>📚 勉強リスト</span>
-                      <button onClick={() => setStudyList(pr => [...pr,{id:Date.now(),text:"",checked:false}])}
-                        style={{border:"none",background:"#A78BFA",color:"white",borderRadius:6,padding:"2px 8px",fontSize:12,fontWeight:700,cursor:"pointer"}}>＋</button>
-                    </div>
-                    {studyList.map(it => (
-                      <div key={it.id} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 0"}}>
-                        <div onClick={() => setStudyList(pr => pr.map(x => x.id===it.id?{...x,checked:!x.checked}:x))} style={ck(it.checked,"#8B5CF6",20)}>{it.checked && <Tk s={12}/>}</div>
-                        <input value={it.text} onChange={e => setStudyList(pr => pr.map(x => x.id===it.id?{...x,text:e.target.value}:x))}
-                          placeholder="テーマ..." style={{...ip,fontSize:14,flex:1,textDecoration:it.checked?"line-through":"none",opacity:it.checked?0.4:1,width:"auto"}}/>
-                        <button onClick={() => setStudyList(pr => pr.filter(x => x.id !== it.id))} style={{border:"none",background:"transparent",color:"#CBD5E1",fontSize:18,cursor:"pointer",padding:"0 2px"}}>✕</button>
-                      </div>
-                    ))}
-                  </div>
 
                   {/* Follow-up reminders (subtle, at bottom) */}
                   {(() => {
