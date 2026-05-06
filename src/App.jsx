@@ -1659,7 +1659,7 @@ export default function App() {
                               const hasMultiple = items.filter(it => it.name).length > 1;
                               const expKey = p.id + "_" + item.key;
                               const isExp = orderExpand[expKey];
-                              const noNeed = !s.dateStr && (orderNoNeeded[p.id]||{})[item.key];
+                              const noNeed = (orderNoNeeded[p.id]||{})[item.key];
                               const isUrgent = !noNeed && (s.level === "expired" || s.level === "today" || s.level === "none");
                               const isWarn = !noNeed && s.level === "tomorrow";
                               const bgC = noNeed ? "#F0FDF4" : isUrgent ? "#FEE2E2" : isWarn ? "#FEF3C7" : s.dateStr ? "#F0FDF4" : "#F8FAFC";
@@ -1672,16 +1672,14 @@ export default function App() {
                                     <span style={{fontSize:12,fontWeight:700,color:txC,minWidth:36}}>{item.label}</span>
                                     <span onClick={() => { if(hasMultiple) setOrderExpand(prev => ({...prev,[expKey]:!prev[expKey]})); }}
                                       style={{fontSize:13,fontWeight:700,color:txC,flex:1,cursor:hasMultiple?"pointer":"default"}}>
-                                      {s.dateStr ? item.prefix + addDw(s.dateStr) : (noNeed ? "✓ なし" : item.noLabel)}
-                                      {isUrgent && s.dateStr && " ⚠"}
-                                      {hasMultiple && <span style={{fontSize:10,marginLeft:4,color:txC,opacity:0.7}}>{isExp?"▲":"▼"}{items.filter(it=>it.name).length}件</span>}
+                                      {noNeed ? "✓ なし" : s.dateStr ? item.prefix + addDw(s.dateStr) : item.noLabel}
+                                      {!noNeed && isUrgent && s.dateStr && " ⚠"}
+                                      {!noNeed && hasMultiple && <span style={{fontSize:10,marginLeft:4,color:txC,opacity:0.7}}>{isExp?"▲":"▼"}{items.filter(it=>it.name).length}件</span>}
                                     </span>
-                                    {!s.dateStr && (
-                                      <button onClick={() => toggleOrderNoNeeded(p.id, item.key)}
-                                        style={{border:"1px solid "+bdC,background:noNeed?"#22C55E":"white",borderRadius:6,padding:"3px 8px",fontSize:11,color:noNeed?"white":txC,cursor:"pointer",fontWeight:600}}>
-                                        {noNeed ? "✓なし" : "なし"}
-                                      </button>
-                                    )}
+                                    <button onClick={() => toggleOrderNoNeeded(p.id, item.key)}
+                                      style={{border:"1px solid "+bdC,background:noNeed?"#22C55E":"white",borderRadius:6,padding:"3px 8px",fontSize:11,color:noNeed?"white":txC,cursor:"pointer",fontWeight:600}}>
+                                      {noNeed ? "✓なし" : "なし"}
+                                    </button>
                                     <button onClick={() => setOrderExtMenu(prev => prev?.pid===p.id&&prev?.type===item.key&&!prev?.orderId ? null : {pid:p.id,type:item.key})}
                                       style={{border:"1px solid "+bdC,background:"white",borderRadius:6,padding:"3px 8px",fontSize:11,color:txC,cursor:"pointer",fontWeight:600}}>
                                       延長
@@ -1997,7 +1995,7 @@ export default function App() {
                           </div>
                         </div>
                         {notes.length === 0 && (
-                          <div style={{fontSize:11,color:"#94A3B8",textAlign:"center",padding:"6px 0"}}>＋ボタンで追加（オンコール対応した患者を記録）</div>
+                          <div style={{fontSize:11,color:"#94A3B8",textAlign:"center",padding:"6px 0"}}>＋ボタンで追加</div>
                         )}
                         {notes.map(it => (
                           <div key={it.id} style={{padding:"6px 0",borderBottom:"1px solid #F1F5F9",opacity:it.checked?0.5:1}}>
@@ -2012,7 +2010,7 @@ export default function App() {
                               <button onClick={() => updateNotes(pr => pr.filter(x => x.id !== it.id))} style={{border:"none",background:"transparent",color:"#CBD5E1",fontSize:16,cursor:"pointer",padding:"0 2px",flexShrink:0}}>✕</button>
                             </div>
                             <textarea value={it.text||""} onChange={e => updateNotes(pr => pr.map(x => x.id===it.id?{...x,text:e.target.value}:x))}
-                              placeholder="例: 頻脈でコール。脱水と電解質補正。翌日採血確認..." rows={2}
+                              placeholder="内容..." rows={2}
                               style={{width:"100%",fontSize:13,border:"1px solid #E2E8F0",borderRadius:5,padding:"6px 8px",resize:"vertical",fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
                           </div>
                         ))}
