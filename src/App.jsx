@@ -204,7 +204,7 @@ function PatientModal({onSave, onDelete, onClose, edit, doctors, usedColors}) {
   const toDateVal = s => { const d = pMD(s); if (!d) return ""; const m = String(d.getMonth()+1).padStart(2,"0"), dd = String(d.getDate()).padStart(2,"0"); return `2026-${m}-${dd}`; };
   const fromDateVal = v => { if (!v) return ""; const [,m,d] = v.split("-"); return `${parseInt(m)}/${parseInt(d)}`; };
   const initAdmit = edit ? toDateVal(edit.admitDate) : toDateVal(tdL());
-  const [f, setF] = useState(edit || {name:"",room:"",age:"",sex:"M",diagnosis:"",color:autoColor(),doctor:"",admitDate:tdL(),weight:"",cr:"",family:"",careLevel:"",dischargePlan:"",lastFamilyCall:""});
+  const [f, setF] = useState(edit || {name:"",room:"",bedNo:"",age:"",sex:"M",diagnosis:"",color:autoColor(),doctor:"",admitDate:tdL(),weight:"",cr:"",family:"",careLevel:"",dischargePlan:"",lastFamilyCall:""});
   const [admitDateVal, setAdmitDateVal] = useState(initAdmit);
   const [newDr, setNewDr] = useState("");
   const [showCare, setShowCare] = useState(!!(edit?.careLevel));
@@ -234,16 +234,20 @@ function PatientModal({onSave, onDelete, onClose, edit, doctors, usedColors}) {
         <div style={{padding:"16px 20px",display:"flex",flexDirection:"column",gap:14,overflowY:"auto"}}>
           {/* 氏名 */}
           <div><Lbl>氏名 *</Lbl><input value={f.name} onChange={e => sv("name",e.target.value)} placeholder="例: 田中 太郎" style={I}/></div>
-          {/* 病棟・年齢・性別 */}
+          {/* 病棟・部屋・年齢・性別 */}
           <div style={{display:"flex",gap:8}}>
-            <div style={{flex:1.2}}>
+            <div style={{flex:1.1}}>
               <Lbl>病棟 *</Lbl>
               <select value={f.room} onChange={e => sv("room",e.target.value)} style={{...I,padding:"8px 6px"}}>
                 <option value="">選択</option>
                 {WARDS.map(w => <option key={w}>{w}</option>)}
               </select>
             </div>
-            <div style={{flex:1}}>
+            <div style={{flex:0.9}}>
+              <Lbl>部屋（メモ）</Lbl>
+              <input value={f.bedNo||""} onChange={e => sv("bedNo",e.target.value)} placeholder="例:12" style={I}/>
+            </div>
+            <div style={{flex:0.9}}>
               <Lbl>年齢</Lbl>
               <input value={f.age} onChange={e => sv("age",e.target.value)} placeholder="72" style={I} type="number"/>
             </div>
@@ -618,8 +622,11 @@ export default function App() {
   const today = tdL();
 
   const addOrUpdatePat = p => {
-    const isNew = !patients.find(x => x.id === p.id);
+    const old = patients.find(x => x.id === p.id);
+    const isNew = !old;
+    const roomChanged = old && old.room !== p.room;
     setPatients(pr => { const i = pr.findIndex(x => x.id === p.id); if (i >= 0) { const n = [...pr]; n[i] = p; return n; } return [...pr, p]; });
+    if (roomChanged) shiftRegRxForNewRoom(p.id, p.room);
     if (isNew) {
       setOrders(pr => ({...pr, [p.id]: [
         {id:Date.now()+1, type:"drip_main", name:"", dates:[]},
@@ -716,7 +723,7 @@ export default function App() {
     if (floor === 7) return 5;
     return null;
   };
-  // 定期処方を追加（次回〜12週分の該当曜日に予定を入れる）
+  // 定期処方を追加：今日から1週間分（7日）。pending=true で「未処方」状態
   const addRegRx = (pid) => {
     const p = patients.find(x => x.id === pid); if (!p) return;
     const wd = regRxWeekday(p.room);
@@ -724,18 +731,40 @@ export default function App() {
       alert("HCUまたは不明な病棟のため、定期処方の曜日が設定されていません");
       return;
     }
-    // Generate dates: next occurrences of weekday wd, 12 weeks
-    const start = new Date();
-    start.setHours(0,0,0,0);
+    const start = new Date(); start.setHours(0,0,0,0);
     const dates = [];
-    let d = new Date(start);
-    // Find the first occurrence (today or future) of target weekday
-    while (d.getDay() !== wd) d.setDate(d.getDate() + 1);
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(start); d.setDate(d.getDate() + i);
       dates.push(fD(d));
-      d.setDate(d.getDate() + 7);
     }
-    setOrders(p => ({...p, [pid]: [...(p[pid]||[]), {id:Date.now(), type:"med", name:"定期処方", dates}]}));
+    setOrders(prv => ({...prv, [pid]: [...(prv[pid]||[]), {id:Date.now(), type:"med", name:"定期処方", dates, pending:true}]}));
+  };
+  // 部屋変更時に定期処方の dates を新しい曜日に合わせてシフト
+  const shiftRegRxForNewRoom = (pid, newRoom) => {
+    const newWd = regRxWeekday(newRoom);
+    setOrders(prv => {
+      const po = prv[pid]; if (!po) return prv;
+      let changed = false;
+      const next = po.map(o => {
+        if (o.type !== "med" || o.name !== "定期処方" || !o.dates?.length) return o;
+        const earliest = o.dates.map(d => pMD(d)).filter(Boolean).sort((a,b) => a-b)[0];
+        if (!earliest) return o;
+        // 新しい曜日が無い場合（HCU等）はそのまま
+        if (newWd === null) return o;
+        // Compute new end: earliest 〜 next newWd の前日まで
+        const e = new Date(earliest);
+        let cur = new Date(earliest); cur.setDate(cur.getDate() + 1);
+        // Find next occurrence of newWd starting tomorrow
+        while (cur.getDay() !== newWd) cur.setDate(cur.getDate() + 1);
+        cur.setDate(cur.getDate() - 1); // day before newWd
+        const newDates = [];
+        const d = new Date(earliest);
+        while (d <= cur) { newDates.push(fD(d)); d.setDate(d.getDate() + 1); }
+        if (JSON.stringify(newDates) !== JSON.stringify(o.dates)) { changed = true; return {...o, dates: newDates}; }
+        return o;
+      });
+      return changed ? {...prv, [pid]: next} : prv;
+    });
   };
 
   // Sync TODO task → weekly schedule orders
@@ -1120,7 +1149,7 @@ export default function App() {
               style={{border:"none",background:"transparent",color:p.plannedDischargeDate?"#5C7A93":"#C58269",fontSize:9,cursor:"pointer",padding:0,marginLeft:"auto"}}>{p.plannedDischargeDate?"退院予定":"退院"}</button>
           </div>
           <div style={{paddingLeft:17,fontSize:8,color:"#64748B",lineHeight:1.5}}>
-            {p.room}|{p.age}{p.sex==="F"?"♀":"♂"}|{p.diagnosis}<br/>
+            {p.room}{p.bedNo?"-"+p.bedNo:""}|{p.age}{p.sex==="F"?"♀":"♂"}|{p.diagnosis}<br/>
             CCr:<b style={{color:cv&&cv<30?"#A6553D":cvRes.missing.length?"#94A3B8":"#334155"}}>{cv ?? (cvRes.missing.length?cvRes.missing.join(",")+"未入力":"—")}</b>
             |家族:{p.family}|介護:{p.careLevel}
           </div>
@@ -1317,6 +1346,10 @@ export default function App() {
                   )}
                   {isImg && !it.reportConfirmed && <button onClick={() => markImgDone(p.id, it.id)} style={{border:"none",background:"#E5EDF4",color:"#2D4759",borderRadius:2,fontSize:8,fontWeight:700,padding:"0 3px",cursor:"pointer"}}>レポ未</button>}
                   {isImg && it.reportConfirmed && <span style={{fontSize:8,color:"#7A9968",fontWeight:700}}>✓済</span>}
+                  {it.pending != null && <button onClick={() => setOrders(prv => ({...prv, [p.id]: prv[p.id].map(x => x.id === it.id ? {...x, pending: !x.pending} : x)}))}
+                    style={{border:"none",background:it.pending?"#F8EBC8":"#E5EFD9",color:it.pending?"#7D6432":"#4A6336",borderRadius:2,fontSize:8,fontWeight:700,padding:"0 4px",cursor:"pointer",flexShrink:0}}>
+                    {it.pending ? "未処方" : "処方済"}
+                  </button>}
                   <button onClick={() => rmOrd(p.id, it.id)} style={{border:"none",background:"transparent",color:"#D1D5DB",cursor:"pointer",fontSize:9,padding:0}}>✕</button>
                 </div>
               </td>
@@ -1351,13 +1384,18 @@ export default function App() {
                       }
                       const isR = it.resultDate === ds;
                       const imgOk = cat.type === "img" && it.reportConfirmed;
+                      const isPending = it.pending; // 定期処方など、未処方状態
                       return (
                         <div onClick={() => togDot(p.id, it.id, ds, isCul)}
                           style={{cursor:"pointer",height:18,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                          {hd2 ? <div style={{width:12,height:12,borderRadius:"50%",background:imgOk?"#7A9968":c.dt,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                            {cd && <span style={{fontSize:5,color:"white",fontWeight:800}}>{cd}</span>}
-                            {imgOk && <span style={{fontSize:5,color:"white",fontWeight:800}}>✓</span>}
-                          </div>
+                          {hd2 ? (
+                            isPending
+                              ? <div style={{width:12,height:12,borderRadius:"50%",border:"2px solid "+c.dt,background:"transparent"}}/>
+                              : <div style={{width:12,height:12,borderRadius:"50%",background:imgOk?"#7A9968":c.dt,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                  {cd && <span style={{fontSize:5,color:"white",fontWeight:800}}>{cd}</span>}
+                                  {imgOk && <span style={{fontSize:5,color:"white",fontWeight:800}}>✓</span>}
+                                </div>
+                          )
                           : isR ? <div style={{width:12,height:12,borderRadius:"50%",background:"#7A9968",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:8,color:"white",fontWeight:800}}>✓</span></div>
                           : cd ? <div style={{width:10,height:10,borderRadius:"50%",border:"2px dotted "+c.bar,display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:5,color:c.tx,fontWeight:700}}>{cd}</span></div>
                           : <div style={{width:8,height:8,borderRadius:"50%",border:"1px dashed #CBD5E1"}}/>}
@@ -1750,7 +1788,7 @@ export default function App() {
                         <div style={{background:c.hd,padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                           <div style={{flex:1,minWidth:0}}>
                             <span style={{fontSize:16,fontWeight:800,color:"white"}}>{p.name}</span>
-                            <span style={{fontSize:11,color:"rgba(255,255,255,0.8)",marginLeft:8}}>{p.room}{p.doctor?" · "+p.doctor+"Dr":""}</span>
+                            <span style={{fontSize:11,color:"rgba(255,255,255,0.8)",marginLeft:8}}>{p.room}{p.bedNo?"-"+p.bedNo:""}{p.doctor?" · "+p.doctor+"Dr":""}</span>
                             {dayNum != null && <span style={{fontSize:10,color:"rgba(255,255,255,0.7)",marginLeft:6}}>入院{dayNum}日目</span>}
                             <div style={{fontSize:11,color:"rgba(255,255,255,0.75)",marginTop:1,lineHeight:1.3}}>{p.diagnosis}</div>
                             {p.plannedDischargeDate && (
