@@ -475,7 +475,7 @@ function TaskCell({cell, onUpdate, color, onComplete, onPriority, onCultureDone,
         ) : (
           <span style={{fontSize:9,fontWeight:600,color:"#334155",flex:1,overflow:"hidden",textOverflow:"ellipsis",
             whiteSpace:"nowrap",textDecoration:cell.checked?"line-through":"none",opacity:cell.checked?0.4:1}}>
-            {cell.label}{cell.auto && <span style={{fontSize:7,color:"#94A3B8",marginLeft:2}}>自動</span>}
+            {cell.label}{cell.auto && <span style={{fontSize:9,color:"#94A3B8",marginLeft:2}}>自動</span>}
           </span>
         )}
         <input type="number" min="1" max="99" value={cell.priority||""} onChange={e => onPriority(e.target.value)}
@@ -490,8 +490,8 @@ function TaskCell({cell, onUpdate, color, onComplete, onPriority, onCultureDone,
             return (
               <div key={f} style={{display:"flex",alignItems:"center",gap:2}}>
                 <div onClick={() => onUpdate({...cell,detail:{...cell.detail,[f]:{...v,checked:!v.checked}}})} style={ck(v.checked,color,10)}>{v.checked && <Tk s={5}/>}</div>
-                <span style={{fontSize:7,color:"#64748B",fontWeight:600,width:28}}>{f}</span>
-                <input value={v.memo} onChange={e => onUpdate({...cell,detail:{...cell.detail,[f]:{...v,memo:e.target.value}}})} placeholder="—" style={{...ip,fontSize:7,flex:1,width:"auto"}}/>
+                <span style={{fontSize:9,color:"#64748B",fontWeight:600,width:28}}>{f}</span>
+                <input value={v.memo} onChange={e => onUpdate({...cell,detail:{...cell.detail,[f]:{...v,memo:e.target.value}}})} placeholder="—" style={{...ip,fontSize:9,flex:1,width:"auto"}}/>
               </div>
             );
           })}
@@ -556,7 +556,7 @@ export default function App() {
     window.addEventListener("resize", fn);
     return () => window.removeEventListener("resize", fn);
   }, []);
-  // Drag uses Pointer Events with setPointerCapture (no global listeners needed)
+  // Drag uses Pointer Events (no global listeners needed)
   const [mobileTab, setMobileTab] = useState("todo");
   const [todayView, setTodayView] = useState("summary"); // "summary" | "cards"
   const [showAddAM, setShowAddAM] = useState({});
@@ -783,6 +783,35 @@ export default function App() {
   const setPmC = fn => setTaskDB(prev => { const d = prev[selDateStr] || mkEmptyDay(patients, selDateStr); return {...prev, [selDateStr]: {...d, pm: typeof fn === "function" ? fn(d.pm) : fn}}; });
   const setVitals = fn => setTaskDB(prev => { const d = prev[selDateStr] || mkEmptyDay(patients, selDateStr); return {...prev, [selDateStr]: {...d, vitals: typeof fn === "function" ? fn(d.vitals) : fn}}; });
   const setKarte = fn => setTaskDB(prev => { const d = prev[selDateStr] || mkEmptyDay(patients, selDateStr); return {...prev, [selDateStr]: {...d, karte: typeof fn === "function" ? fn(d.karte) : fn}}; });
+  // Auto-compact tasks so 一覧 (slot grid) and 詳細 (filtered) views always show same order
+  useEffect(() => {
+    const compact = (cells, prefix, max) => {
+      const next = {...cells};
+      let changed = false;
+      sortedPats.forEach(p => {
+        const filled = [];
+        for (let i = 0; i < max; i++) {
+          const k = prefix + i + "_" + p.id;
+          if (next[k]?.presetId) filled.push(next[k]);
+        }
+        for (let i = 0; i < max; i++) {
+          const k = prefix + i + "_" + p.id;
+          const want = i < filled.length ? filled[i] : null;
+          const cur = next[k];
+          if (want) {
+            if (cur !== want) { next[k] = want; changed = true; }
+          } else if (cur && cur.presetId) {
+            next[k] = emptyCell(); changed = true;
+          }
+        }
+      });
+      return changed ? next : null;
+    };
+    const am2 = compact(amC, "am", AM);
+    if (am2) setAmC(am2);
+    const pm2 = compact(pmC, "pm", PM_R);
+    if (pm2) setPmC(pm2);
+  }, [amC, pmC, sortedPats]);
   const swapTask = (pfx, slotA, slotB, pid) => {
     const setC = pfx === "am" ? setAmC : setPmC;
     const max = pfx === "am" ? AM : PM_R;
@@ -793,28 +822,47 @@ export default function App() {
     });
   };
   // Drag-to-reorder using document-level pointer listeners (works mouse/touch/pen)
+  // visibleOnly=true skips empty slots (used in cards/detail view)
   const ROW_H = 40;
-  const dragHandlers = (pfx, slot, pid) => ({
+  const dragHandlers = (pfx, slot, pid, visibleOnly = false) => ({
     onPointerDown: e => {
       e.preventDefault();
       const startY = e.clientY;
       let currentSlot = slot;
       let lastSwapY = startY;
       const max = pfx === "am" ? AM - 1 : PM_R - 1;
+      const cells = pfx === "am" ? amC : pmC;
+      // Find next/prev filled slot relative to current
+      const findNeighbor = (from, dir) => {
+        if (!visibleOnly) return from + dir; // grid mode: just next slot
+        let s = from + dir;
+        while (s >= 0 && s <= max) {
+          const k = pfx + s + "_" + pid;
+          if (cells[k]?.presetId) return s;
+          s += dir;
+        }
+        return -1;
+      };
       setDragTask({ pfx, slot, pid });
       const onMove = ev => {
         ev.preventDefault();
         const dy = ev.clientY - lastSwapY;
-        if (dy > ROW_H && currentSlot < max) {
-          swapTask(pfx, currentSlot, currentSlot + 1, pid);
-          currentSlot += 1;
-          lastSwapY += ROW_H;
-          setDragTask({ pfx, slot: currentSlot, pid });
-        } else if (dy < -ROW_H && currentSlot > 0) {
-          swapTask(pfx, currentSlot, currentSlot - 1, pid);
-          currentSlot -= 1;
-          lastSwapY -= ROW_H;
-          setDragTask({ pfx, slot: currentSlot, pid });
+        if (dy > ROW_H) {
+          const target = findNeighbor(currentSlot, 1);
+          if (target >= 0 && target <= max) {
+            swapTask(pfx, currentSlot, target, pid);
+            currentSlot = target;
+            lastSwapY = ev.clientY;
+            setDragTask({ pfx, slot: currentSlot, pid });
+          }
+        } else if (dy < -ROW_H) {
+          const target = findNeighbor(currentSlot, -1);
+          if (target >= 0) {
+            swapTask(pfx, currentSlot, target, pid);
+            currentSlot = target;
+            lastSwapY = ev.clientY;
+            setDragTask({ pfx, slot: currentSlot, pid });
+          }
         }
       };
       const onUp = () => {
@@ -977,7 +1025,7 @@ export default function App() {
                 <div style={{display:"flex",alignItems:"flex-start",gap:1}}>
                   {cell.presetId && (
                     <div {...dragHandlers(pfx,ri,p.id)}
-                      style={{cursor:"grab",color:"#CBD5E1",fontSize:8,flexShrink:0,userSelect:"none",touchAction:"none",padding:"2px 0",marginTop:1}}>⠿</div>
+                      style={{cursor:"grab",color:"#94A3B8",fontSize:12,lineHeight:1,flexShrink:0,userSelect:"none",touchAction:"none",padding:"3px 4px",marginTop:0,borderRadius:4}}>⠿</div>
                   )}
                   <div style={{flex:1,minWidth:0}}>
                     <TaskCell cell={cell} color={cl.dt}
@@ -1026,7 +1074,7 @@ export default function App() {
             )}
             <button onClick={() => setPatModal({edit:p})} style={{border:"none",background:"transparent",color:"#94A3B8",fontSize:8,cursor:"pointer",padding:0}}>✎</button>
             <button onClick={() => dischargePat(p.id)}
-              style={{border:"none",background:"transparent",color:p.plannedDischargeDate?"#5C7A93":"#C58269",fontSize:7,cursor:"pointer",padding:0,marginLeft:"auto"}}>{p.plannedDischargeDate?"退院予定":"退院"}</button>
+              style={{border:"none",background:"transparent",color:p.plannedDischargeDate?"#5C7A93":"#C58269",fontSize:9,cursor:"pointer",padding:0,marginLeft:"auto"}}>{p.plannedDischargeDate?"退院予定":"退院"}</button>
           </div>
           <div style={{paddingLeft:17,fontSize:8,color:"#64748B",lineHeight:1.5}}>
             {p.room}|{p.age}{p.sex==="F"?"♀":"♂"}|{p.diagnosis}<br/>
@@ -1036,12 +1084,12 @@ export default function App() {
           {isE && (
             <div style={{paddingLeft:17,marginTop:2,display:"flex",gap:3}}>
               <button onClick={() => setShowCL(pr => ({...pr,[p.id+"_a"]:!pr[p.id+"_a"]}))}
-                style={{border:"none",background:"#E5EDF4",color:"#2D4759",borderRadius:3,fontSize:7,fontWeight:700,padding:"1px 4px",cursor:"pointer"}}>入院CL</button>
+                style={{border:"none",background:"#E5EDF4",color:"#2D4759",borderRadius:3,fontSize:9,fontWeight:700,padding:"1px 4px",cursor:"pointer"}}>入院CL</button>
               <button onClick={() => setShowCL(pr => ({...pr,[p.id+"_d"]:!pr[p.id+"_d"]}))}
-                style={{border:"none",background:"#F8EBC8",color:"#7D6432",borderRadius:3,fontSize:7,fontWeight:700,padding:"1px 4px",cursor:"pointer"}}>退院CL</button>
+                style={{border:"none",background:"#F8EBC8",color:"#7D6432",borderRadius:3,fontSize:9,fontWeight:700,padding:"1px 4px",cursor:"pointer"}}>退院CL</button>
               <div style={{position:"relative"}}>
                 <button onClick={() => setShowCatMenu(pr => ({...pr,[p.id]:!pr[p.id]}))}
-                  style={{border:"1px dashed #94A3B8",background:"transparent",borderRadius:3,fontSize:7,fontWeight:600,padding:"1px 4px",cursor:"pointer",color:"#64748B"}}>＋追加</button>
+                  style={{border:"1px dashed #94A3B8",background:"transparent",borderRadius:3,fontSize:9,fontWeight:600,padding:"1px 4px",cursor:"pointer",color:"#64748B"}}>＋追加</button>
                 {showCatMenu[p.id] && (
                   <div onClick={e => e.stopPropagation()} style={{position:"absolute",top:"110%",left:0,zIndex:300,background:"white",border:"1px solid #E2E8F0",borderRadius:10,boxShadow:"0 8px 24px rgba(0,0,0,0.15)",padding:6,minWidth:140}}>
                     {[
@@ -1081,7 +1129,7 @@ export default function App() {
           if (p.surgery === ds) m.push({l:"手術",bg:"#F5E5DC",co:"#7D3823"});
           return (
             <td key={di} style={{padding:"2px 1px",borderBottom:"1px solid "+c.bd+"40",borderLeft:"1px solid #F7F1E1",background:t?"#F0F4F930":"transparent",textAlign:"center",verticalAlign:"top"}}>
-              {m.map((x, i) => <div key={i} style={{fontSize:7,background:x.bg,color:x.co,borderRadius:3,padding:"1px 2px",fontWeight:800,marginBottom:1}}>{x.l}</div>)}
+              {m.map((x, i) => <div key={i} style={{fontSize:9,background:x.bg,color:x.co,borderRadius:3,padding:"1px 2px",fontWeight:800,marginBottom:1}}>{x.l}</div>)}
             </td>
           );
         })}
@@ -1105,7 +1153,7 @@ export default function App() {
           const isLastMed = os.med?.dateStr === ds;
           const isLastDrip = os.drip?.dateStr === ds;
           return (
-            <td key={di} style={{padding:"1px",borderBottom:"1px solid "+c.bd+"30",borderLeft:"1px solid #F7F1E1",background:t?"#F0F4F930":"transparent",textAlign:"center",fontSize:7,lineHeight:1.4}}>
+            <td key={di} style={{padding:"1px",borderBottom:"1px solid "+c.bd+"30",borderLeft:"1px solid #F7F1E1",background:t?"#F0F4F930":"transparent",textAlign:"center",fontSize:9,lineHeight:1.4}}>
               {hasMed && <span style={{color:isLastMed?"#A6553D":"#4A6336",fontWeight:700}}>💊</span>}
               {hasDrip && <span style={{color:isLastDrip?"#A6553D":"#4A6336",fontWeight:700}}>💉</span>}
               {hasLab && <span style={{color:"#3D5C7A",fontWeight:700}}>🩸</span>}
@@ -1126,8 +1174,8 @@ export default function App() {
             return (
               <div key={x} style={{display:"flex",alignItems:"center",gap:2,padding:"1px 4px",borderRadius:3,background:on?"#E5EFD9":"white",border:"1px solid "+(on?"#B8CDA0":"#E2E8F0")}}>
                 <div onClick={() => setACL(pr => ({...pr,[k]:!pr[k]}))} style={{...ck(on,c.dt,9),cursor:"pointer"}}>{on && <Tk s={4}/>}</div>
-                <span style={{fontSize:7,cursor:"pointer"}} onClick={() => setACL(pr => ({...pr,[k]:!pr[k]}))}>{x}</span>
-                {x === "追加検査" && <input value={memo} onClick={e => e.stopPropagation()} onChange={e => setACL(pr => ({...pr,[k+"_memo"]:e.target.value}))} placeholder="メモ..." style={{...ip,fontSize:7,width:50,border:"1px solid #E2E8F0",borderRadius:2,padding:"0 3px",background:"white"}}/>}
+                <span style={{fontSize:9,cursor:"pointer"}} onClick={() => setACL(pr => ({...pr,[k]:!pr[k]}))}>{x}</span>
+                {x === "追加検査" && <input value={memo} onClick={e => e.stopPropagation()} onChange={e => setACL(pr => ({...pr,[k+"_memo"]:e.target.value}))} placeholder="メモ..." style={{...ip,fontSize:9,width:50,border:"1px solid #E2E8F0",borderRadius:2,padding:"0 3px",background:"white"}}/>}
               </div>
             );
           })}
@@ -1144,12 +1192,12 @@ export default function App() {
             return (
               <div key={x} style={{display:"flex",alignItems:"center",gap:2,padding:"1px 4px",borderRadius:3,background:on?"#E5EFD9":"white",border:"1px solid "+(on?"#B8CDA0":"#E2E8F0")}}>
                 <div onClick={() => setDCL(pr => ({...pr,[k]:!pr[k]}))} style={{...ck(on,c.dt,9),cursor:"pointer"}}>{on && <Tk s={4}/>}</div>
-                <span style={{fontSize:7,cursor:"pointer"}} onClick={() => setDCL(pr => ({...pr,[k]:!pr[k]}))}>{x}</span>
+                <span style={{fontSize:9,cursor:"pointer"}} onClick={() => setDCL(pr => ({...pr,[k]:!pr[k]}))}>{x}</span>
                 {x === "外来F/U" && on && (
                   <input type="text" placeholder="M/D" value={fuVal}
                     onClick={e => e.stopPropagation()}
                     onChange={e => setDCL(pr => ({...pr,[k+"_val"]:e.target.value}))}
-                    style={{fontSize:7,border:"1px solid #E2E8F0",borderRadius:2,padding:"0 2px",width:36,outline:"none"}}/>
+                    style={{fontSize:9,border:"1px solid #E2E8F0",borderRadius:2,padding:"0 2px",width:36,outline:"none"}}/>
                 )}
               </div>
             );
@@ -1177,7 +1225,7 @@ export default function App() {
                   <div style={{display:"flex",gap:2,marginLeft:"auto"}}>
                     {["血液","尿","痰"].map(sp => (
                       <button key={sp} onClick={() => addCultureOrd(p.id, sp)}
-                        style={{border:"1px solid #E2E8F0",background:"white",borderRadius:4,fontSize:7,padding:"0 4px",cursor:"pointer",color:c.dt,fontWeight:700}}>+{sp}</button>
+                        style={{border:"1px solid #E2E8F0",background:"white",borderRadius:4,fontSize:9,padding:"0 4px",cursor:"pointer",color:c.dt,fontWeight:700}}>+{sp}</button>
                     ))}
                   </div>
                 ) : (
@@ -1185,7 +1233,7 @@ export default function App() {
                 )}
                 {!isAlways && (
                   <button onClick={() => setPatCats(pr => ({...pr,[p.id]:(pr[p.id]||DEFAULT_CATS).filter(x => x.type !== cat.type)}))}
-                    style={{border:"none",background:"transparent",color:"#D1D5DB",fontSize:7,cursor:"pointer",padding:0}}>✕</button>
+                    style={{border:"none",background:"transparent",color:"#D1D5DB",fontSize:9,cursor:"pointer",padding:0}}>✕</button>
                 )}
               </div>
             </td>
@@ -1206,20 +1254,20 @@ export default function App() {
                 <div style={{display:"flex",alignItems:"center",gap:2,flexWrap:"wrap"}}>
                   {isCul ? (
                     <>
-                      <span style={{fontSize:7,fontWeight:700,color:"#475569",flexShrink:0}}>{specimenLabel||"培養"}</span>
+                      <span style={{fontSize:9,fontWeight:700,color:"#475569",flexShrink:0}}>{specimenLabel||"培養"}</span>
                       {hasGram && (
                         <input value={it.gramResult||""} onChange={e => updGram(p.id, it.id, e.target.value)}
-                          placeholder="G染色…" style={{...ip,fontSize:7,flex:1,width:"auto",minWidth:36,borderBottom:"1px solid #E2E8F0"}}/>
+                          placeholder="G染色…" style={{...ip,fontSize:9,flex:1,width:"auto",minWidth:36,borderBottom:"1px solid #E2E8F0"}}/>
                       )}
-                      {!it.resultDate && <button onClick={() => markCulDone(p.id, it.id)} style={{border:"none",background:"#F8EBC8",color:"#7D6432",borderRadius:2,fontSize:6,fontWeight:700,padding:"0 3px",cursor:"pointer",flexShrink:0}}>未</button>}
-                      {it.resultDate && <span style={{fontSize:6,color:"#7A9968",fontWeight:700,flexShrink:0}}>✓済</span>}
+                      {!it.resultDate && <button onClick={() => markCulDone(p.id, it.id)} style={{border:"none",background:"#F8EBC8",color:"#7D6432",borderRadius:2,fontSize:8,fontWeight:700,padding:"0 3px",cursor:"pointer",flexShrink:0}}>未</button>}
+                      {it.resultDate && <span style={{fontSize:8,color:"#7A9968",fontWeight:700,flexShrink:0}}>✓済</span>}
                     </>
                   ) : (
-                    <input value={it.name} onChange={e => updNm(p.id, it.id, e.target.value)} placeholder="名称を入力" style={{...ip,fontSize:7,fontWeight:500,flex:1,width:"auto",minWidth:30}}/>
+                    <input value={it.name} onChange={e => updNm(p.id, it.id, e.target.value)} placeholder="名称を入力" style={{...ip,fontSize:9,fontWeight:500,flex:1,width:"auto",minWidth:30}}/>
                   )}
-                  {isImg && !it.reportConfirmed && <button onClick={() => markImgDone(p.id, it.id)} style={{border:"none",background:"#E5EDF4",color:"#2D4759",borderRadius:2,fontSize:6,fontWeight:700,padding:"0 3px",cursor:"pointer"}}>レポ未</button>}
-                  {isImg && it.reportConfirmed && <span style={{fontSize:6,color:"#7A9968",fontWeight:700}}>✓済</span>}
-                  <button onClick={() => rmOrd(p.id, it.id)} style={{border:"none",background:"transparent",color:"#D1D5DB",cursor:"pointer",fontSize:7,padding:0}}>✕</button>
+                  {isImg && !it.reportConfirmed && <button onClick={() => markImgDone(p.id, it.id)} style={{border:"none",background:"#E5EDF4",color:"#2D4759",borderRadius:2,fontSize:8,fontWeight:700,padding:"0 3px",cursor:"pointer"}}>レポ未</button>}
+                  {isImg && it.reportConfirmed && <span style={{fontSize:8,color:"#7A9968",fontWeight:700}}>✓済</span>}
+                  <button onClick={() => rmOrd(p.id, it.id)} style={{border:"none",background:"transparent",color:"#D1D5DB",cursor:"pointer",fontSize:9,padding:0}}>✕</button>
                 </div>
               </td>
               {wk.map((d, di) => {
@@ -1239,7 +1287,7 @@ export default function App() {
                               borderLeft:iS?"3px solid "+(cat.type==="abx"?"#A88040":c.dt):"none",
                               borderRight:iE?"3px solid "+(cat.type==="abx"?"#A88040":c.dt):"none",
                               display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",padding:"0 2px"}}>
-                              {dn && <span style={{fontSize:7,fontWeight:800,color:cat.type==="abx"?"#7D6432":c.tx}}>{dn}</span>}
+                              {dn && <span style={{fontSize:9,fontWeight:800,color:cat.type==="abx"?"#7D6432":c.tx}}>{dn}</span>}
                             </div>
                           ) : <div style={{height:"100%",borderBottom:"1px dashed #E2E8F0"}}/>}
                         </div>
@@ -1260,7 +1308,7 @@ export default function App() {
                             {cd && <span style={{fontSize:5,color:"white",fontWeight:800}}>{cd}</span>}
                             {imgOk && <span style={{fontSize:5,color:"white",fontWeight:800}}>✓</span>}
                           </div>
-                          : isR ? <div style={{width:12,height:12,borderRadius:"50%",background:"#7A9968",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:6,color:"white",fontWeight:800}}>✓</span></div>
+                          : isR ? <div style={{width:12,height:12,borderRadius:"50%",background:"#7A9968",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:8,color:"white",fontWeight:800}}>✓</span></div>
                           : cd ? <div style={{width:10,height:10,borderRadius:"50%",border:"2px dotted "+c.bar,display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:5,color:c.tx,fontWeight:700}}>{cd}</span></div>
                           : <div style={{width:8,height:8,borderRadius:"50%",border:"1px dashed #CBD5E1"}}/>}
                         </div>
@@ -1291,28 +1339,28 @@ export default function App() {
                   return (
                     <div key={lb.id} style={{display:"flex",alignItems:"center",gap:2,padding:"1px 3px",borderRadius:3,background:v.done?"#E5EFD9":"white",border:"1px solid "+(v.done?"#B8CDA0":"#E2E8F0")}}>
                       <div onClick={() => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],[lb.id]:{...v,done:!v.done}}}))} style={ck(v.done,c.dt,9)}>{v.done && <Tk s={4}/>}</div>
-                      <span style={{fontSize:7,color:"#64748B",fontWeight:600}}>{lb.l}</span>
-                      <input value={v.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],[lb.id]:{...v,value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:7,width:24,textAlign:"center"}}/>
+                      <span style={{fontSize:9,color:"#64748B",fontWeight:600}}>{lb.l}</span>
+                      <input value={v.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],[lb.id]:{...v,value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:9,width:24,textAlign:"center"}}/>
                     </div>
                   );
                 })}
                 {/* TSAT group: Fe + TIBC → TSAT */}
                 <div style={{display:"flex",alignItems:"center",gap:2,padding:"1px 3px",borderRadius:3,background:"#F8EBC8",border:"1px solid #E8C97A"}}>
-                  <span style={{fontSize:7,color:"#7D6432",fontWeight:700}}>Fe</span>
-                  <input value={rl.fe?.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],fe:{...(pr[p.id]?.fe||{}),value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:7,width:22,textAlign:"center"}}/>
-                  <span style={{fontSize:7,color:"#7D6432",fontWeight:700}}>TIBC</span>
-                  <input value={rl.tibc?.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],tibc:{...(pr[p.id]?.tibc||{}),value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:7,width:24,textAlign:"center"}}/>
-                  <span style={{fontSize:7,color:"#7D6432",fontWeight:700}}>→TSAT</span>
+                  <span style={{fontSize:9,color:"#7D6432",fontWeight:700}}>Fe</span>
+                  <input value={rl.fe?.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],fe:{...(pr[p.id]?.fe||{}),value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:9,width:22,textAlign:"center"}}/>
+                  <span style={{fontSize:9,color:"#7D6432",fontWeight:700}}>TIBC</span>
+                  <input value={rl.tibc?.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],tibc:{...(pr[p.id]?.tibc||{}),value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:9,width:24,textAlign:"center"}}/>
+                  <span style={{fontSize:9,color:"#7D6432",fontWeight:700}}>→TSAT</span>
                   <b style={{fontSize:8,color:tsat!=null && tsat<20?"#A6553D":"#7D6432"}}>{tsat!=null?tsat+"%":"—"}</b>
                 </div>
                 {/* RPI group: Retic + Hct → RPI */}
                 <div style={{display:"flex",alignItems:"center",gap:2,padding:"1px 3px",borderRadius:3,background:"#F5E5DC",border:"1px solid #E8AE94"}}
                   title="網赤血球は%表記の場合と‰表記の場合あり、自施設で確認">
-                  <span style={{fontSize:7,color:"#7D3823",fontWeight:700}}>網赤%</span>
-                  <input value={rl.retic?.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],retic:{...(pr[p.id]?.retic||{}),value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:7,width:24,textAlign:"center"}}/>
-                  <span style={{fontSize:7,color:"#7D3823",fontWeight:700}}>Hct</span>
-                  <input value={rl.hct?.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],hct:{...(pr[p.id]?.hct||{}),value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:7,width:22,textAlign:"center"}}/>
-                  <span style={{fontSize:7,color:"#7D3823",fontWeight:700}}>→RPI</span>
+                  <span style={{fontSize:9,color:"#7D3823",fontWeight:700}}>網赤%</span>
+                  <input value={rl.retic?.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],retic:{...(pr[p.id]?.retic||{}),value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:9,width:24,textAlign:"center"}}/>
+                  <span style={{fontSize:9,color:"#7D3823",fontWeight:700}}>Hct</span>
+                  <input value={rl.hct?.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],hct:{...(pr[p.id]?.hct||{}),value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:9,width:22,textAlign:"center"}}/>
+                  <span style={{fontSize:9,color:"#7D3823",fontWeight:700}}>→RPI</span>
                   <b style={{fontSize:8,color:rpi!=null && rpi<2?"#A6553D":"#7D3823"}}>{rpi!=null?rpi:"—"}</b>
                 </div>
               </div>
@@ -1495,7 +1543,7 @@ export default function App() {
                         <div style={{display:"flex",alignItems:"flex-start",gap:2,padding:"2px 0",
                           background:dragTask?.pfx===pfx&&dragTask?.slot===slot&&dragTask?.pid===pid?"#F0F4F9":"transparent"}}>
                           <div {...dragHandlers(pfx,slot,pid)}
-                            style={{cursor:"grab",color:"#CBD5E1",fontSize:9,flexShrink:0,userSelect:"none",touchAction:"none",padding:"1px 0"}}>⠿</div>
+                            style={{cursor:"grab",color:"#94A3B8",fontSize:13,lineHeight:1,flexShrink:0,userSelect:"none",touchAction:"none",padding:"4px 4px",borderRadius:4}}>⠿</div>
                           <div onClick={() => compT(taskKey)} style={{...ck(cell.checked,c.dt,14),marginTop:1,flexShrink:0}}>{cell.checked&&<Tk s={8}/>}</div>
                           <span style={{fontSize:10,color:cell.checked?"#CBD5E1":"#334155",textDecoration:cell.checked?"line-through":"none",lineHeight:1.3,wordBreak:"break-all"}}>
                             {cell.priority&&<b style={{color:"#A88040",marginRight:2}}>{cell.priority}</b>}{cell.icon} {(cell.label||cell.text||"").slice(0,10)}
@@ -1801,8 +1849,8 @@ export default function App() {
                               background:dragTask?.pfx==="am"&&dragTask?.slot===slot&&dragTask?.pid===p.id?"#F0F4F9":"transparent",
                               transition:"background 0.15s"}}>
                               <div style={{display:"flex",alignItems:"center",gap:8,opacity:cell.checked?0.45:1}}>
-                                <div {...dragHandlers("am",slot,p.id)}
-                                  style={{cursor:"grab",color:"#94A3B8",fontSize:14,flexShrink:0,padding:"4px 2px",userSelect:"none",touchAction:"none"}}>⠿</div>
+                                <div {...dragHandlers("am",slot,p.id,true)}
+                                  style={{cursor:"grab",color:"#94A3B8",fontSize:20,lineHeight:1,flexShrink:0,padding:"8px 8px",userSelect:"none",touchAction:"none",borderRadius:6,background:"#FBF8F0",minWidth:32,minHeight:32,display:"flex",alignItems:"center",justifyContent:"center"}}>⠿</div>
                                 <div onClick={() => compT(key)} style={ck(cell.checked,c.dt,22)}>{cell.checked && <Tk s={13}/>}</div>
                                 {cell.type === "free"
                                   ? <input value={cell.text||""} onChange={e => setAmC(prev => ({...prev,[key]:{...prev[key]||emptyCell(),text:e.target.value}}))}
@@ -1875,8 +1923,8 @@ export default function App() {
                               background:dragTask?.pfx==="pm"&&dragTask?.slot===slot&&dragTask?.pid===p.id?"#F5EFF8":"transparent",
                               transition:"background 0.15s"}}>
                               <div style={{display:"flex",alignItems:"center",gap:8,opacity:cell.checked?0.45:1}}>
-                                <div {...dragHandlers("pm",slot,p.id)}
-                                  style={{cursor:"grab",color:"#94A3B8",fontSize:14,flexShrink:0,padding:"4px 2px",userSelect:"none",touchAction:"none"}}>⠿</div>
+                                <div {...dragHandlers("pm",slot,p.id,true)}
+                                  style={{cursor:"grab",color:"#94A3B8",fontSize:20,lineHeight:1,flexShrink:0,padding:"8px 8px",userSelect:"none",touchAction:"none",borderRadius:6,background:"#FBF8F0",minWidth:32,minHeight:32,display:"flex",alignItems:"center",justifyContent:"center"}}>⠿</div>
                                 <div onClick={() => compT(key)} style={ck(cell.checked,c.dt,22)}>{cell.checked && <Tk s={13}/>}</div>
                                 {cell.type === "free"
                                   ? <input value={cell.text||""} onChange={e => setPmC(prev => ({...prev,[key]:{...prev[key]||emptyCell(),text:e.target.value}}))}
@@ -2231,7 +2279,7 @@ export default function App() {
                 {filteredPats.map(p => { const cl = COL[p.color]; return (
                   <th key={p.id} style={{position:"sticky",top:0,zIndex:3,padding:"4px 3px",background:cl.hd,borderBottom:"2px solid "+cl.hd,textAlign:"center"}}>
                     <div style={{fontSize:10,fontWeight:800,color:"white"}}>{p.name.split(" ")[0]}</div>
-                    <div style={{fontSize:7,color:"rgba(255,255,255,0.7)"}}>{p.room}{p.doctor?" "+p.doctor[0]+"Dr":""}</div>
+                    <div style={{fontSize:9,color:"rgba(255,255,255,0.7)"}}>{p.room}{p.doctor?" "+p.doctor[0]+"Dr":""}</div>
                   </th>
                 ); })}
               </tr></thead>
@@ -2245,13 +2293,13 @@ export default function App() {
                       <div style={{display:"flex",gap:2,marginBottom:1}}>
                         <button onClick={() => setVStatus(p.id,"ok")}
                           style={{flex:1,border:"1px solid "+(v.status==="ok"?"#7A9968":"#E2E8F0"),borderRadius:3,background:v.status==="ok"?"#E5EFD9":"white",
-                            color:v.status==="ok"?"#4A6336":"#94A3B8",fontSize:7,fontWeight:700,padding:"1px 0",cursor:"pointer"}}>✓ 正常</button>
+                            color:v.status==="ok"?"#4A6336":"#94A3B8",fontSize:9,fontWeight:700,padding:"1px 0",cursor:"pointer"}}>✓ 正常</button>
                         <button onClick={() => setVStatus(p.id,"flag")}
                           style={{flex:1,border:"1px solid "+(v.status==="flag"?"#B5664E":"#E2E8F0"),borderRadius:3,background:v.status==="flag"?"#F5DBCC":"white",
-                            color:v.status==="flag"?"#A6553D":"#94A3B8",fontSize:7,fontWeight:700,padding:"1px 0",cursor:"pointer"}}>！所見</button>
+                            color:v.status==="flag"?"#A6553D":"#94A3B8",fontSize:9,fontWeight:700,padding:"1px 0",cursor:"pointer"}}>！所見</button>
                       </div>
                       {v.status === "flag" && <input value={v.memo||""} onChange={e => setVitals(pr => ({...pr,[p.id]:{...pr[p.id],memo:e.target.value}}))}
-                        placeholder="所見..." style={{...ip,fontSize:7,width:"100%",color:"#A6553D",fontWeight:600}}/>}
+                        placeholder="所見..." style={{...ip,fontSize:9,width:"100%",color:"#A6553D",fontWeight:600}}/>}
                     </td>
                   ); })}
                 </tr>
@@ -2271,7 +2319,7 @@ export default function App() {
                               <span style={{fontSize:9}}>{cu.icon}</span>
                               <span style={{fontWeight:600,color:"#8C4830",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cu.name}{cu.day?" Day"+cu.day:""}</span>
                               <button onClick={() => cu.type==="culture"?markCulDone(p.id,cu.orderId):markImgDone(p.id,cu.orderId)}
-                                style={{border:"1px solid #7A9968",background:"#F0F5E8",borderRadius:3,fontSize:6,color:"#4A6336",fontWeight:700,cursor:"pointer",padding:"0 3px"}}>済み</button>
+                                style={{border:"1px solid #7A9968",background:"#F0F5E8",borderRadius:3,fontSize:8,color:"#4A6336",fontWeight:700,cursor:"pointer",padding:"0 3px"}}>済み</button>
                             </div>
                           ))}
                         </td>
@@ -2299,7 +2347,7 @@ export default function App() {
                     const missLab = labs.length === 0 && !noNeed.lab;
                     const sumColor = lvl => lvl==="expired"||lvl==="today"||lvl==="none" ? "#A6553D" : lvl==="tomorrow" ? "#7D6432" : "#4A6336";
                     return (
-                      <td key={p.id} style={{padding:"2px 3px",borderTop:"2px solid #F0BFA8",borderBottom:"2px solid #F0BFA8",borderLeft:"1px solid #F7F1E1",verticalAlign:"top",fontSize:7,color:"#64748B"}}>
+                      <td key={p.id} style={{padding:"2px 3px",borderTop:"2px solid #F0BFA8",borderBottom:"2px solid #F0BFA8",borderLeft:"1px solid #F7F1E1",verticalAlign:"top",fontSize:9,color:"#64748B"}}>
                         {/* 内服 */}
                         <div style={{borderBottom:"1px dashed #F0BFA8",paddingBottom:1,marginBottom:1}}>
                           <span style={{fontWeight:700,color:os.med?.dateStr?sumColor(os.med?.level):noNeed.med?"#4A6336":missMed?"#A6553D":"#94A3B8"}}>💊 {os.med?.dateStr ? "〜"+addDw(os.med.dateStr) : noNeed.med?"✓なし":missMed?"未設定":"—"}</span>
@@ -2368,7 +2416,7 @@ export default function App() {
                         <div key={it.id} style={{display:"flex",alignItems:"center",gap:3,marginBottom:2}}>
                           <div onClick={() => setConsults(pr => ({...pr,[p.id]:(pr[p.id]||[]).map(x => x.id===it.id?{...x,checked:!x.checked}:x)}))} style={ck(it.checked,cl.dt)}>{it.checked && <Tk/>}</div>
                           <div onClick={() => setConsults(pr => ({...pr,[p.id]:(pr[p.id]||[]).map(x => x.id===it.id?{...x,urgent:!x.urgent}:x)}))}
-                            style={{width:13,height:13,borderRadius:"50%",border:it.urgent?"2px solid #A6553D":"2px solid #E2E8F0",background:it.urgent?"#A6553D":"white",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:6,color:"white",fontWeight:800}}>
+                            style={{width:13,height:13,borderRadius:"50%",border:it.urgent?"2px solid #A6553D":"2px solid #E2E8F0",background:it.urgent?"#A6553D":"white",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,color:"white",fontWeight:800}}>
                             {it.urgent && "!"}
                           </div>
                           <input value={it.text} onChange={e => setConsults(pr => ({...pr,[p.id]:(pr[p.id]||[]).map(x => x.id===it.id?{...x,text:e.target.value}:x)}))} placeholder="相談事項..."
