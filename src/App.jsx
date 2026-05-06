@@ -1571,13 +1571,12 @@ export default function App() {
                                 </td>
                                 {filteredPats.map(p => {
                                   const k = curKarte[p.id]||{checked:false,memo:""};
-                                  const c = COL[p.color];
                                   return (
                                     <td key={p.id} style={{...cellSt(p),borderTop:"2px solid #93C5FD",background:k.checked?"#F0FDF4":"transparent"}}>
                                       <div style={{display:"flex",alignItems:"flex-start",gap:3,padding:"2px 0"}}>
                                         <div onClick={() => setKarte(pr => ({...pr,[p.id]:{...pr[p.id],checked:!k.checked}}))}
-                                          style={{...ck(k.checked,c.dt,14),marginTop:1,flexShrink:0}}>{k.checked&&<Tk s={8}/>}</div>
-                                        <span style={{fontSize:10,color:k.checked?"#22C55E":"#334155",fontWeight:600,lineHeight:1.3,wordBreak:"break-all"}}>
+                                          style={{...ck(k.checked,"#22C55E",14),marginTop:1,flexShrink:0}}>{k.checked&&<Tk s={8}/>}</div>
+                                        <span style={{fontSize:10,color:k.checked?"#16A34A":"#94A3B8",fontWeight:600,lineHeight:1.3,wordBreak:"break-all"}}>
                                           {k.checked?"済":(k.memo||"").slice(0,10)||"未"}
                                         </span>
                                       </div>
