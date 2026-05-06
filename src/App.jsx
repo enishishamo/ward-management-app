@@ -29,8 +29,7 @@ const LAB_F = ["血球","CRP","電解質","腎機能","肝胆道系","その他"
 const CULTURE_T = ["血液","尿","痰"];
 const R_LABS = [
   {id:"b12",l:"B12"},{id:"folate",l:"葉酸"},{id:"ferritin",l:"フェリチン"},
-  {id:"fe",l:"Fe"},{id:"tibc",l:"TIBC"},{id:"tsh",l:"TSH"},
-  {id:"ft4",l:"FT4"},{id:"cortisol",l:"コルチゾール"},{id:"retic",l:"網赤%"},{id:"hct",l:"Hct"}
+  {id:"tsh",l:"TSH"},{id:"ft4",l:"FT4"},{id:"cortisol",l:"コルチゾール"}
 ];
 const ADMIT_CL = ["同意書(DNAR)","同意書(身体拘束)","同意書(その他)","病名","入院決定",
   "入院カルテ1号紙","複合セット・指示","他科依頼","入院計画書","IC記録",
@@ -84,23 +83,16 @@ const abxCumDay = (po, currentAbx, todayDateStr) => {
   }
   return Math.round((td - earliest) / 86400000) + 1;
 };
-// Horio式 (日本人向けCCr推算式) — 身長未入力時はCockcroft-Gaultで代替
-// Horio男性: ((33 - 0.065×age - 0.493×BMI) × weight) / (Cr × 14.4)
-// Horio女性: ((21 - 0.052×age - 0.202×BMI) × weight) / (Cr × 14.4)
-// CG: ((140 - age) × weight) / (72 × Cr) × (女性: 0.85)
-const cCr = (age, wt, cr, f, ht) => {
-  const a=parseFloat(age),w=parseFloat(wt),c=parseFloat(cr),h=parseFloat(ht);
-  if(!c||c<=0||!w||isNaN(a)||a<=0) return null;
-  if(h && h > 0) {
-    const bmi = w / ((h/100) * (h/100));
-    const num = f ? (21 - 0.052*a - 0.202*bmi) * w : (33 - 0.065*a - 0.493*bmi) * w;
-    const v = num / (c * 14.4);
-    return v > 0 ? Math.round(v*10)/10 : null;
-  }
-  // Fallback: Cockcroft-Gault
+// Cockcroft-Gault式
+// CCr [mL/min] = (140 - age) × weight / (72 × Cr) × (0.85 if female)
+const cCr = (age, wt, cr, f) => {
+  const a=parseFloat(age),w=parseFloat(wt),c=parseFloat(cr);
+  if(!c||c<=0||!w||w<=0||isNaN(a)||a<=0) return null;
   const v = ((140 - a) * w / (72 * c)) * (f ? 0.85 : 1);
   return v > 0 ? Math.round(v*10)/10 : null;
 };
+// RPIマチュレーションタイム: Hct>40:1, 30-40:1.5, 20-30:2, <20:2.5
+const rpiMaturation = hct => hct > 40 ? 1 : hct >= 30 ? 1.5 : hct >= 20 ? 2 : 2.5;
 const bSp = (s, e, d) => { const a = pMD(s), b = pMD(e), c = pMD(d); return a && b && c && c >= a && c <= b; };
 const addDw = s => {
   if (!s) return "";
@@ -978,14 +970,15 @@ export default function App() {
   const renderGanttPatient = p => {
     const c = COL[p.color], po = orders[p.id]||[], isE = expP[p.id];
     const stickyTd = (bg) => ({position:"sticky",left:0,zIndex:2,background:bg||"white"});
-    const cv = cCr(p.age, p.weight, p.cr, p.sex === "F", p.height);
+    const cv = cCr(p.age, p.weight, p.cr, p.sex === "F");
     const rl = rLabs[p.id]||{};
     const fe = rl.fe?.value ? parseFloat(rl.fe.value) : null;
     const tibc = rl.tibc?.value ? parseFloat(rl.tibc.value) : null;
     const tsat = (fe && tibc && tibc > 0) ? Math.round(fe/tibc*100) : null;
     const ret = rl.retic?.value ? parseFloat(rl.retic.value) : null;
     const hct = rl.hct?.value ? parseFloat(rl.hct.value) : null;
-    const rpi = (ret && hct) ? Math.round(ret*(hct/45)*10)/10 : null;
+    // RPI = (Hct/45) × 網赤血球(%) ÷ Maturation time
+    const rpi = (ret && hct) ? Math.round((hct/45) * ret / rpiMaturation(hct) * 10) / 10 : null;
     const rows = [];
 
     // Patient header
@@ -1260,7 +1253,7 @@ export default function App() {
               {rpi != null && <span style={{fontWeight:400,color:"#64748B"}}> RPI:<b style={{color:rpi<2?"#DC2626":"#334155"}}>{rpi}</b></span>}
             </div>
             {rlOpen[p.id] && (
-              <div style={{display:"flex",flexWrap:"wrap",gap:3}}>
+              <div style={{display:"flex",flexWrap:"wrap",gap:3,alignItems:"center"}}>
                 {R_LABS.map(lb => {
                   const v = rl[lb.id] || {done:false,value:""};
                   return (
@@ -1271,6 +1264,25 @@ export default function App() {
                     </div>
                   );
                 })}
+                {/* TSAT group: Fe + TIBC → TSAT */}
+                <div style={{display:"flex",alignItems:"center",gap:2,padding:"1px 3px",borderRadius:3,background:"#FEF3C7",border:"1px solid #FDE68A"}}>
+                  <span style={{fontSize:7,color:"#92400E",fontWeight:700}}>Fe</span>
+                  <input value={rl.fe?.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],fe:{...(pr[p.id]?.fe||{}),value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:7,width:22,textAlign:"center"}}/>
+                  <span style={{fontSize:7,color:"#92400E",fontWeight:700}}>TIBC</span>
+                  <input value={rl.tibc?.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],tibc:{...(pr[p.id]?.tibc||{}),value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:7,width:24,textAlign:"center"}}/>
+                  <span style={{fontSize:7,color:"#92400E",fontWeight:700}}>→TSAT</span>
+                  <b style={{fontSize:8,color:tsat!=null && tsat<20?"#DC2626":"#92400E"}}>{tsat!=null?tsat+"%":"—"}</b>
+                </div>
+                {/* RPI group: Retic + Hct → RPI */}
+                <div style={{display:"flex",alignItems:"center",gap:2,padding:"1px 3px",borderRadius:3,background:"#FCE7F3",border:"1px solid #F9A8D4"}}
+                  title="網赤血球は%表記の場合と‰表記の場合あり、自施設で確認">
+                  <span style={{fontSize:7,color:"#9D174D",fontWeight:700}}>網赤%</span>
+                  <input value={rl.retic?.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],retic:{...(pr[p.id]?.retic||{}),value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:7,width:24,textAlign:"center"}}/>
+                  <span style={{fontSize:7,color:"#9D174D",fontWeight:700}}>Hct</span>
+                  <input value={rl.hct?.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],hct:{...(pr[p.id]?.hct||{}),value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:7,width:22,textAlign:"center"}}/>
+                  <span style={{fontSize:7,color:"#9D174D",fontWeight:700}}>→RPI</span>
+                  <b style={{fontSize:8,color:rpi!=null && rpi<2?"#DC2626":"#9D174D"}}>{rpi!=null?rpi:"—"}</b>
+                </div>
               </div>
             )}
           </td>
