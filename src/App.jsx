@@ -484,7 +484,7 @@ const loadLS = (key, fallback) => { try { const v = localStorage.getItem(key); r
 const saveLS = (key, val) => { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} };
 
 // Backup helpers — keys subject to backup
-const BACKUP_KEYS = ["ward_patients_v2","ward_discharged_v2","ward_orders_v2","ward_patCats_v2","ward_rLabs_v2","ward_taskDB","ward_consults_v2"];
+const BACKUP_KEYS = ["ward_patients_v2","ward_discharged_v2","ward_orders_v2","ward_patCats_v2","ward_rLabs_v2","ward_taskDB","ward_consults_v2","ward_orderNoNeeded","ward_dutyNotes"];
 const collectBackup = () => { const o = {}; BACKUP_KEYS.forEach(k => { const v = localStorage.getItem(k); if (v) o[k] = v; }); return o; };
 const applyBackup = (snap) => { BACKUP_KEYS.forEach(k => { if (snap[k] != null) localStorage.setItem(k, snap[k]); }); };
 const listBackups = () => Object.keys(localStorage).filter(k => k.startsWith("ward_backup_")).sort().reverse();
@@ -517,6 +517,8 @@ export default function App() {
   const [rLabs, setRLabs] = useState(() => loadLS("ward_rLabs_v2", {}));
   // orderNoNeeded[pid] = {med:bool, drip:bool, lab:bool} — explicitly marked "なし"
   const [orderNoNeeded, setOrderNoNeeded] = useState(() => loadLS("ward_orderNoNeeded", {}));
+  // dutyNotes[dateStr] = [{id, text}] — notes about other patients on duty/holidays
+  const [dutyNotes, setDutyNotes] = useState(() => loadLS("ward_dutyNotes", {}));
   const [patModal, setPatModal] = useState(null);
   const [catModal, setCatModal] = useState(null);
   const [showCatMenu, setShowCatMenu] = useState({});
@@ -560,6 +562,7 @@ export default function App() {
   useEffect(() => { saveLS("ward_patCats_v2", patCats); }, [patCats]);
   useEffect(() => { saveLS("ward_rLabs_v2", rLabs); }, [rLabs]);
   useEffect(() => { saveLS("ward_orderNoNeeded", orderNoNeeded); }, [orderNoNeeded]);
+  useEffect(() => { saveLS("ward_dutyNotes", dutyNotes); }, [dutyNotes]);
   // Toggle "なし" flag; if order exists for that type, also remove the flag
   const toggleOrderNoNeeded = (pid, type) => {
     setOrderNoNeeded(pr => {
@@ -1324,8 +1327,8 @@ export default function App() {
 
               {/* Tab: 予定表 */}
               {mobileTab === "schedule" && (
-                <div style={{background:"white",minHeight:"100%"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:6,padding:"8px 10px",borderBottom:"1px solid #E5E7EB"}}>
+                <div style={{background:"white",height:"100%",display:"flex",flexDirection:"column"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,padding:"8px 10px",borderBottom:"1px solid #E5E7EB",flexShrink:0}}>
                     <button onClick={() => { const d=new Date(selDate); d.setDate(d.getDate()-7); setSelDate(d); }} style={{border:"1px solid #E2E8F0",background:"white",borderRadius:6,width:30,height:30,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>◀</button>
                     <div style={{flex:1,textAlign:"center"}}>
                       <div style={{fontSize:12,fontWeight:700}}>📋 週間予定表</div>
@@ -1333,7 +1336,7 @@ export default function App() {
                     </div>
                     <button onClick={() => { const d=new Date(selDate); d.setDate(d.getDate()+7); setSelDate(d); }} style={{border:"1px solid #E2E8F0",background:"white",borderRadius:6,width:30,height:30,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>▶</button>
                   </div>
-                  <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
+                  <div style={{flex:1,overflow:"auto",WebkitOverflowScrolling:"touch"}}>
                     <table style={{minWidth:480,width:"100%",borderCollapse:"collapse",tableLayout:"fixed"}}>
                       <colgroup><col style={{width:120,minWidth:100}}/>{wk.map((_,i) => <col key={i}/>)}</colgroup>
                       <thead><tr>
@@ -1951,6 +1954,34 @@ export default function App() {
                       </div>
                     ); })}
                   </div>
+
+                  {/* Duty notes (other patients) */}
+                  {(() => {
+                    const notes = dutyNotes[selDateStr] || [];
+                    const updateNotes = fn => setDutyNotes(pr => ({...pr, [selDateStr]: fn(pr[selDateStr]||[])}));
+                    return (
+                      <div style={{background:"white",borderRadius:14,marginBottom:12,padding:"10px 14px",boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}}>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                          <span style={{fontSize:13,fontWeight:700,color:"#0891B2"}}>🌙 当直・他患者メモ</span>
+                          <button onClick={() => updateNotes(pr => [...pr,{id:Date.now(),text:"",checked:false}])}
+                            style={{border:"none",background:"#22D3EE",color:"white",borderRadius:6,padding:"2px 8px",fontSize:12,fontWeight:700,cursor:"pointer"}}>＋</button>
+                        </div>
+                        {notes.length === 0 && (
+                          <div style={{fontSize:11,color:"#94A3B8",textAlign:"center",padding:"6px 0"}}>＋ボタンで追加（病棟-部屋・氏名・内容など自由に）</div>
+                        )}
+                        {notes.map(it => (
+                          <div key={it.id} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"4px 0"}}>
+                            <div onClick={() => updateNotes(pr => pr.map(x => x.id===it.id?{...x,checked:!x.checked}:x))} style={{...ck(it.checked,"#06B6D4",20),marginTop:4}}>{it.checked && <Tk s={12}/>}</div>
+                            <textarea value={it.text} onChange={e => updateNotes(pr => pr.map(x => x.id===it.id?{...x,text:e.target.value}:x))}
+                              placeholder="例: 5N-12 田中 発熱 39.0℃ ロセフィン投与..." rows={1}
+                              style={{flex:1,fontSize:13,border:"1px solid #E2E8F0",borderRadius:6,padding:"6px 8px",resize:"vertical",fontFamily:"inherit",outline:"none",
+                                textDecoration:it.checked?"line-through":"none",opacity:it.checked?0.5:1,minHeight:32}}/>
+                            <button onClick={() => updateNotes(pr => pr.filter(x => x.id !== it.id))} style={{border:"none",background:"transparent",color:"#CBD5E1",fontSize:18,cursor:"pointer",padding:"4px 2px"}}>✕</button>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
 
                   {/* Study list */}
                   <div style={{background:"white",borderRadius:14,marginBottom:12,padding:"10px 14px",boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}}>
