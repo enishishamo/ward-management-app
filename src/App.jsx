@@ -85,11 +85,18 @@ const abxCumDay = (po, currentAbx, todayDateStr) => {
 };
 // Cockcroft-Gault式
 // CCr [mL/min] = (140 - age) × weight / (72 × Cr) × (0.85 if female)
+// Returns {value, missing} — missing は不足項目の配列
 const cCr = (age, wt, cr, f) => {
-  const a=parseFloat(age),w=parseFloat(wt),c=parseFloat(cr);
-  if(!c||c<=0||!w||w<=0||isNaN(a)||a<=0) return null;
+  // Accept comma-as-decimal (e.g. "0,8" → 0.8)
+  const norm = v => typeof v === "string" ? v.replace(",", ".") : v;
+  const a=parseFloat(norm(age)),w=parseFloat(norm(wt)),c=parseFloat(norm(cr));
+  const missing = [];
+  if (isNaN(a) || a <= 0) missing.push("年齢");
+  if (isNaN(w) || w <= 0) missing.push("体重");
+  if (isNaN(c) || c <= 0) missing.push("Cr");
+  if (missing.length) return {value:null, missing};
   const v = ((140 - a) * w / (72 * c)) * (f ? 0.85 : 1);
-  return v > 0 ? Math.round(v*10)/10 : null;
+  return {value: v > 0 ? Math.round(v*10)/10 : null, missing:[]};
 };
 // RPIマチュレーションタイム: Hct>40:1, 30-40:1.5, 20-30:2, <20:2.5
 const rpiMaturation = hct => hct > 40 ? 1 : hct >= 30 ? 1.5 : hct >= 20 ? 2 : 2.5;
@@ -497,6 +504,7 @@ export default function App() {
   const [selDate, setSelDate] = useState(new Date());
   const wk = useMemo(() => getWk(selDate), [selDate]);
   const [backupModal, setBackupModal] = useState(false);
+  const [handoffModal, setHandoffModal] = useState(false);
   // Run daily auto-backup on mount
   useEffect(() => { saveDailyBackup(); }, []);
   const [patients, setPatients] = useState(() => loadLS("ward_patients_v2", iPats));
@@ -970,7 +978,8 @@ export default function App() {
   const renderGanttPatient = p => {
     const c = COL[p.color], po = orders[p.id]||[], isE = expP[p.id];
     const stickyTd = (bg) => ({position:"sticky",left:0,zIndex:2,background:bg||"white"});
-    const cv = cCr(p.age, p.weight, p.cr, p.sex === "F");
+    const cvRes = cCr(p.age, p.weight, p.cr, p.sex === "F");
+    const cv = cvRes.value;
     const rl = rLabs[p.id]||{};
     const fe = rl.fe?.value ? parseFloat(rl.fe.value) : null;
     const tibc = rl.tibc?.value ? parseFloat(rl.tibc.value) : null;
@@ -998,7 +1007,7 @@ export default function App() {
           </div>
           <div style={{paddingLeft:17,fontSize:8,color:"#64748B",lineHeight:1.5}}>
             {p.room}|{p.age}{p.sex==="F"?"♀":"♂"}|{p.diagnosis}<br/>
-            CCr:<b style={{color:cv&&cv<30?"#DC2626":"#334155"}}>{cv||"—"}</b>
+            CCr:<b style={{color:cv&&cv<30?"#DC2626":cvRes.missing.length?"#94A3B8":"#334155"}}>{cv ?? (cvRes.missing.length?cvRes.missing.join(",")+"未入力":"—")}</b>
             |家族:{p.family}|介護:{p.careLevel}
           </div>
           {isE && (
@@ -1320,6 +1329,7 @@ export default function App() {
             </div>
           )}
         </div>
+        <button onClick={() => setHandoffModal(true)} title="申し送り作成" style={{border:"1px solid #E2E8F0",background:"#F8FAFC",borderRadius:20,padding:"6px 10px",fontSize:14,cursor:"pointer",flexShrink:0,marginRight:6}}>📋</button>
         <button onClick={() => setBackupModal(true)} title="バックアップ" style={{border:"1px solid #E2E8F0",background:"#F8FAFC",borderRadius:20,padding:"6px 10px",fontSize:14,cursor:"pointer",flexShrink:0,marginRight:6}}>💾</button>
         <button onClick={() => setPatModal({})} style={{border:"none",background:"#3B82F6",borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:700,color:"white",cursor:"pointer",flexShrink:0}}>＋患者</button>
       </header>
@@ -2429,6 +2439,7 @@ export default function App() {
       {catModal && <AddCatModal onAdd={c => setPatCats(pr => ({...pr,[catModal]:[...(pr[catModal]||DEFAULT_CATS),c]}))} onClose={() => setCatModal(null)}/>}
       {dischargeModal && <DischargeModal patient={dischargeModal} onConfirm={confirmDischarge} onCancel={() => setDischargeModal(null)}/>}
       {backupModal && <BackupModal onClose={() => setBackupModal(false)}/>}
+      {handoffModal && <HandoffModal patients={filteredPats} orders={orders} selDateStr={selDateStr} onClose={() => setHandoffModal(false)}/>}
     </div>
   );
 }
@@ -2518,6 +2529,143 @@ function BackupModal({onClose}) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function HandoffModal({patients, orders, selDateStr, onClose}) {
+  // Build initial entries from patients
+  const initEntry = p => {
+    const po = orders[p.id] || [];
+    const sd = pMD(selDateStr);
+    const onToday = o => o.dates?.some(d => d === selDateStr);
+    const notExpAbx = o => { if (!o.endDate) return true; const ed = pMD(o.endDate); return ed && sd && ed >= sd; };
+    const meds = po.filter(o => o.type === "med" && o.name && onToday(o)).map(o => o.name);
+    const drips = po.filter(o => o.type === "drip_main" && o.name && onToday(o)).map(o => o.name);
+    const abxs = po.filter(o => o.type === "abx" && o.name && notExpAbx(o)).map(o => o.name + (o.endDate ? "(〜"+o.endDate+")" : ""));
+    const treatment = [...drips, ...meds, ...abxs].join("、") || "なし";
+    // Upcoming labs (today or after)
+    const labs = po.filter(o => o.type === "lab")
+      .flatMap(o => (o.dates || []).map(d => ({d, name: o.name||"血液検査"})))
+      .filter(x => { const dd = pMD(x.d); return dd && sd && dd >= sd; })
+      .sort((a,b) => pMD(a.d) - pMD(b.d));
+    const exams = labs.length ? labs.slice(0,3).map(l => l.d + l.name).join("、") : "なし";
+    return {
+      pid: p.id,
+      enabled: true,
+      priority: "①",
+      name: p.name,
+      ageSex: (p.age || "") + (p.sex === "F" ? "F" : "M"),
+      room: p.room || "",
+      diagnosis: p.diagnosis || "",
+      treatment,
+      exams,
+      notes: p.dischargePlan ? "退院調整中（"+p.dischargePlan+"予定）" : ""
+    };
+  };
+  const [entries, setEntries] = useState(() => patients.map(initEntry));
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewText, setPreviewText] = useState("");
+  const upd = (pid, k, v) => setEntries(pr => pr.map(e => e.pid === pid ? {...e, [k]: v} : e));
+  const buildText = () => entries.filter(e => e.enabled).map(e =>
+    `${e.priority}${e.name}　${e.ageSex}　${e.room}\n` +
+    `【主病名】${e.diagnosis}\n` +
+    `【現在の治療内容】${e.treatment}\n` +
+    `【検査予定】${e.exams}\n` +
+    `【特記事項】${e.notes}`
+  ).join("\n\n");
+  const openPreview = () => { setPreviewText(buildText()); setShowPreview(true); };
+  const doCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(previewText);
+      alert("コピーしました\nWORKSなどに貼り付けて送信してください");
+    } catch {
+      const ta = document.createElement("textarea"); ta.value = previewText;
+      document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove();
+      alert("コピーしました");
+    }
+  };
+  const PRIORITIES = [
+    {v:"①",l:"①安定/不要",bg:"#DCFCE7",bd:"#86EFAC",tx:"#166534"},
+    {v:"②",l:"②やや不安定",bg:"#FEF3C7",bd:"#FDE68A",tx:"#92400E"},
+    {v:"③",l:"③不安定/評価要",bg:"#FEE2E2",bd:"#FCA5A5",tx:"#991B1B"}
+  ];
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:8}}>
+      <div onClick={e => e.stopPropagation()} style={{background:"white",borderRadius:14,maxWidth:600,width:"100%",maxHeight:"95vh",display:"flex",flexDirection:"column",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 18px",borderBottom:"1px solid #E2E8F0",flexShrink:0}}>
+          <h2 style={{margin:0,fontSize:16,fontWeight:800}}>📋 申し送り作成</h2>
+          <button onClick={onClose} style={{border:"none",background:"transparent",fontSize:20,cursor:"pointer",color:"#94A3B8"}}>✕</button>
+        </div>
+        {!showPreview ? (
+          <>
+            <div style={{padding:"10px 18px 4px",fontSize:11,color:"#64748B",background:"#F8FAFC",borderBottom:"1px solid #E2E8F0",flexShrink:0}}>
+              現在のデータから自動入力されます。各項目は編集できます。
+            </div>
+            <div style={{flex:1,overflow:"auto",padding:"10px 14px"}}>
+              {entries.map(e => (
+                <div key={e.pid} style={{border:"1px solid #E2E8F0",borderRadius:10,padding:10,marginBottom:10,background:e.enabled?"white":"#F8FAFC",opacity:e.enabled?1:0.5}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+                    <input type="checkbox" checked={e.enabled} onChange={ev => upd(e.pid,"enabled",ev.target.checked)} style={{width:16,height:16}}/>
+                    <input value={e.name} onChange={ev => upd(e.pid,"name",ev.target.value)}
+                      placeholder="氏名" style={{flex:2,fontSize:13,fontWeight:700,border:"1px solid #E2E8F0",borderRadius:5,padding:"4px 6px",outline:"none",minWidth:0}}/>
+                    <input value={e.ageSex} onChange={ev => upd(e.pid,"ageSex",ev.target.value)}
+                      placeholder="90F" style={{width:50,fontSize:12,border:"1px solid #E2E8F0",borderRadius:5,padding:"4px 6px",outline:"none",textAlign:"center"}}/>
+                    <input value={e.room} onChange={ev => upd(e.pid,"room",ev.target.value)}
+                      placeholder="5s" style={{width:50,fontSize:12,border:"1px solid #E2E8F0",borderRadius:5,padding:"4px 6px",outline:"none",textAlign:"center"}}/>
+                  </div>
+                  <div style={{display:"flex",gap:4,marginBottom:6}}>
+                    {PRIORITIES.map(pr => (
+                      <button key={pr.v} onClick={() => upd(e.pid,"priority",pr.v)}
+                        style={{flex:1,border:"1px solid "+(e.priority===pr.v?pr.bd:"#E2E8F0"),background:e.priority===pr.v?pr.bg:"white",
+                          color:e.priority===pr.v?pr.tx:"#94A3B8",borderRadius:6,padding:"4px 0",fontSize:10,fontWeight:700,cursor:"pointer"}}>
+                        {pr.l}
+                      </button>
+                    ))}
+                  </div>
+                  <FieldInput label="主病名" value={e.diagnosis} onChange={v => upd(e.pid,"diagnosis",v)}/>
+                  <FieldInput label="現在の治療内容" value={e.treatment} onChange={v => upd(e.pid,"treatment",v)}/>
+                  <FieldInput label="検査予定" value={e.exams} onChange={v => upd(e.pid,"exams",v)}/>
+                  <FieldInput label="特記事項" value={e.notes} onChange={v => upd(e.pid,"notes",v)} multiline/>
+                </div>
+              ))}
+            </div>
+            <div style={{padding:"10px 18px",borderTop:"1px solid #E2E8F0",display:"flex",gap:8,flexShrink:0}}>
+              <button onClick={onClose} style={{flex:1,padding:"10px",border:"1px solid #E2E8F0",background:"white",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer"}}>キャンセル</button>
+              <button onClick={openPreview} style={{flex:2,padding:"10px",border:"none",background:"#3B82F6",color:"white",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer"}}>プレビュー →</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{padding:"10px 18px 4px",fontSize:11,color:"#64748B",background:"#F8FAFC",borderBottom:"1px solid #E2E8F0",flexShrink:0}}>
+              この内容でコピーされます。下のテキストを直接編集できます。
+            </div>
+            <div style={{flex:1,padding:"10px 14px",display:"flex"}}>
+              <textarea value={previewText} onChange={e => setPreviewText(e.target.value)}
+                style={{flex:1,fontSize:13,border:"1px solid #E2E8F0",borderRadius:8,padding:"10px 12px",resize:"none",fontFamily:"inherit",outline:"none",lineHeight:1.6}}/>
+            </div>
+            <div style={{padding:"10px 18px",borderTop:"1px solid #E2E8F0",display:"flex",gap:8,flexShrink:0}}>
+              <button onClick={() => setShowPreview(false)} style={{flex:1,padding:"10px",border:"1px solid #E2E8F0",background:"white",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer"}}>← 戻って編集</button>
+              <button onClick={doCopy} style={{flex:2,padding:"10px",border:"none",background:"#10B981",color:"white",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer"}}>📋 コピー</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FieldInput({label, value, onChange, multiline}) {
+  return (
+    <div style={{display:"flex",alignItems:"flex-start",gap:6,marginBottom:4}}>
+      <span style={{fontSize:11,color:"#64748B",fontWeight:600,minWidth:80,paddingTop:4,flexShrink:0}}>【{label}】</span>
+      {multiline ? (
+        <textarea value={value} onChange={e => onChange(e.target.value)} rows={2}
+          style={{flex:1,fontSize:12,border:"1px solid #E2E8F0",borderRadius:5,padding:"4px 6px",outline:"none",resize:"vertical",fontFamily:"inherit"}}/>
+      ) : (
+        <input value={value} onChange={e => onChange(e.target.value)}
+          style={{flex:1,fontSize:12,border:"1px solid #E2E8F0",borderRadius:5,padding:"4px 6px",outline:"none",minWidth:0}}/>
+      )}
     </div>
   );
 }
