@@ -890,13 +890,20 @@ export default function App() {
       const order = po[oi];
       const target = pMD(targetDateStr);
       if (!target) return prev;
-      // Replace all dates: set from admission or earliest existing date up to target
-      const existing = (order.dates || []).map(d => pMD(d)).filter(Boolean);
-      const earliest = existing.length ? existing.sort((a,b) => a-b)[0] : pMD(selDateStr);
-      if (!earliest) return prev;
-      const newDates = [];
-      const cur = new Date(earliest);
-      while (cur <= target) { newDates.push(fD(cur)); cur.setDate(cur.getDate() + 1); }
+      let newDates;
+      if (type === "lab") {
+        // For lab: just add the single target date (don't fill a range)
+        const existing = (order.dates || []).filter(d => d !== targetDateStr);
+        newDates = [...existing, targetDateStr];
+      } else {
+        // For med/drip/abx: fill from earliest existing (or selected date) to target
+        const existing = (order.dates || []).map(d => pMD(d)).filter(Boolean);
+        const earliest = existing.length ? existing.sort((a,b) => a-b)[0] : pMD(selDateStr);
+        if (!earliest) return prev;
+        newDates = [];
+        const cur = new Date(earliest);
+        while (cur <= target) { newDates.push(fD(cur)); cur.setDate(cur.getDate() + 1); }
+      }
       const newOrders = [...po]; newOrders[oi] = {...order, dates: newDates};
       return {...prev, [pid]: newOrders};
     });
@@ -1959,26 +1966,58 @@ export default function App() {
                   {(() => {
                     const notes = dutyNotes[selDateStr] || [];
                     const updateNotes = fn => setDutyNotes(pr => ({...pr, [selDateStr]: fn(pr[selDateStr]||[])}));
+                    const buildSummary = () => notes.filter(n => n.name||n.text).map(n => {
+                      const head = `👤${n.name||"(氏名未入力)"} ${n.room||""} ${n.doctor?n.doctor+"先生":""}`.trim();
+                      return head + "\n" + (n.text||"");
+                    }).join("\n\n");
+                    const copySummary = async () => {
+                      const text = buildSummary();
+                      if (!text) return;
+                      try {
+                        await navigator.clipboard.writeText(text);
+                        alert("申し送り文をコピーしました\nWORKSなどに貼り付けて共有できます");
+                      } catch {
+                        // Fallback for non-secure contexts
+                        const ta = document.createElement("textarea"); ta.value = text;
+                        document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove();
+                        alert("コピーしました");
+                      }
+                    };
                     return (
                       <div style={{background:"white",borderRadius:14,marginBottom:12,padding:"10px 14px",boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}}>
-                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
-                          <span style={{fontSize:13,fontWeight:700,color:"#0891B2"}}>🌙 当直・他患者メモ</span>
-                          <button onClick={() => updateNotes(pr => [...pr,{id:Date.now(),text:"",checked:false}])}
-                            style={{border:"none",background:"#22D3EE",color:"white",borderRadius:6,padding:"2px 8px",fontSize:12,fontWeight:700,cursor:"pointer"}}>＋</button>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:6}}>
+                          <span style={{fontSize:13,fontWeight:700,color:"#0891B2"}}>🌙 オンコール・休日他患者メモ</span>
+                          <div style={{display:"flex",gap:6}}>
+                            {notes.length > 0 && (
+                              <button onClick={copySummary} title="申し送りをまとめてコピー"
+                                style={{border:"1px solid #06B6D4",background:"white",color:"#0891B2",borderRadius:6,padding:"2px 8px",fontSize:11,fontWeight:700,cursor:"pointer"}}>📋まとめCopy</button>
+                            )}
+                            <button onClick={() => updateNotes(pr => [...pr,{id:Date.now(),name:"",room:"",doctor:"",text:"",checked:false}])}
+                              style={{border:"none",background:"#22D3EE",color:"white",borderRadius:6,padding:"2px 8px",fontSize:12,fontWeight:700,cursor:"pointer"}}>＋</button>
+                          </div>
                         </div>
                         {notes.length === 0 && (
-                          <div style={{fontSize:11,color:"#94A3B8",textAlign:"center",padding:"6px 0"}}>＋ボタンで追加（病棟-部屋・氏名・内容など自由に）</div>
+                          <div style={{fontSize:11,color:"#94A3B8",textAlign:"center",padding:"6px 0"}}>＋ボタンで追加（オンコール対応した患者を記録）</div>
                         )}
                         {notes.map(it => (
-                          <div key={it.id} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"4px 0"}}>
-                            <div onClick={() => updateNotes(pr => pr.map(x => x.id===it.id?{...x,checked:!x.checked}:x))} style={{...ck(it.checked,"#06B6D4",20),marginTop:4}}>{it.checked && <Tk s={12}/>}</div>
-                            <textarea value={it.text} onChange={e => updateNotes(pr => pr.map(x => x.id===it.id?{...x,text:e.target.value}:x))}
-                              placeholder="例: 5N-12 田中 発熱 39.0℃ ロセフィン投与..." rows={1}
-                              style={{flex:1,fontSize:13,border:"1px solid #E2E8F0",borderRadius:6,padding:"6px 8px",resize:"vertical",fontFamily:"inherit",outline:"none",
-                                textDecoration:it.checked?"line-through":"none",opacity:it.checked?0.5:1,minHeight:32}}/>
-                            <button onClick={() => updateNotes(pr => pr.filter(x => x.id !== it.id))} style={{border:"none",background:"transparent",color:"#CBD5E1",fontSize:18,cursor:"pointer",padding:"4px 2px"}}>✕</button>
+                          <div key={it.id} style={{padding:"6px 0",borderBottom:"1px solid #F1F5F9",opacity:it.checked?0.5:1}}>
+                            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                              <div onClick={() => updateNotes(pr => pr.map(x => x.id===it.id?{...x,checked:!x.checked}:x))} style={{...ck(it.checked,"#06B6D4",20),flexShrink:0}}>{it.checked && <Tk s={12}/>}</div>
+                              <input value={it.name||""} onChange={e => updateNotes(pr => pr.map(x => x.id===it.id?{...x,name:e.target.value}:x))}
+                                placeholder="患者名" style={{flex:1.4,minWidth:0,fontSize:13,fontWeight:700,border:"1px solid #E2E8F0",borderRadius:5,padding:"4px 6px",outline:"none",textDecoration:it.checked?"line-through":"none"}}/>
+                              <input value={it.room||""} onChange={e => updateNotes(pr => pr.map(x => x.id===it.id?{...x,room:e.target.value}:x))}
+                                placeholder="部屋" list="ward-list" style={{flex:0.7,minWidth:0,fontSize:12,border:"1px solid #E2E8F0",borderRadius:5,padding:"4px 6px",outline:"none"}}/>
+                              <input value={it.doctor||""} onChange={e => updateNotes(pr => pr.map(x => x.id===it.id?{...x,doctor:e.target.value}:x))}
+                                placeholder="主治医" list="duty-doctor-list" style={{flex:1,minWidth:0,fontSize:12,border:"1px solid #E2E8F0",borderRadius:5,padding:"4px 6px",outline:"none"}}/>
+                              <button onClick={() => updateNotes(pr => pr.filter(x => x.id !== it.id))} style={{border:"none",background:"transparent",color:"#CBD5E1",fontSize:16,cursor:"pointer",padding:"0 2px",flexShrink:0}}>✕</button>
+                            </div>
+                            <textarea value={it.text||""} onChange={e => updateNotes(pr => pr.map(x => x.id===it.id?{...x,text:e.target.value}:x))}
+                              placeholder="例: 頻脈でコール。脱水と電解質補正。翌日採血確認..." rows={2}
+                              style={{width:"100%",fontSize:13,border:"1px solid #E2E8F0",borderRadius:5,padding:"6px 8px",resize:"vertical",fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
                           </div>
                         ))}
+                        <datalist id="ward-list">{WARDS.map(w => <option key={w} value={w}/>)}</datalist>
+                        <datalist id="duty-doctor-list">{doctors.map(d => <option key={d} value={d}/>)}</datalist>
                       </div>
                     );
                   })()}
