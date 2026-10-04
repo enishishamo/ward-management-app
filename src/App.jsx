@@ -1,4 +1,16 @@
+import {abxCumDay,sortSchedule,groupSchedule,changeScheduleDate,imageCellStatus} from './scheduleLogic.js';
+import ChecklistModal from "./ChecklistModal.jsx";
+import {validateBackup} from "./backup.js";
+import {carryTasks,taskSlots,stampTasks} from "./taskCarry.js";
+import {patientCCr} from './clinical.js';
+import {dateKey,parseDate,shortDate,migrateDates,occurrenceDone} from './dates.js';
+import ScheduleAgenda, {OrderEditor} from './ScheduleAgenda.jsx';
+import LabCalculator from './LabCalculator.jsx';
+import './interface.css';
 import { useState, useMemo, useRef, useEffect } from "react";
+import { WARDS, prescriptionWeekday, updatePrescriptionWeekdays } from "./wardSettings.js";
+import WardSettingsModal from "./WardSettingsModal.jsx";
+import { selectPatients, patientFloor, admissionTime, manualCCr, URGENCY_LABELS } from "./patientView.js";
 
 const DOW = ["日","月","火","水","木","金","土"];
 // ⑥ 和×クレイ ハイブリッドカラーパレット
@@ -11,7 +23,7 @@ const COL = {
   teal:{bg:"#DDEBE3",bd:"#6B9080",tx:"#2F4F3E",dt:"#6B9080",hd:"#6B9080",bar:"#A4C3B2"}     // 青磁
 };
 const COLORS = Object.keys(COL);
-const WARDS = ["HCU","4N","4S","5N","5S","6N","6S","7N","7S"];
+
 const PRESETS = [
   {id:"lab",icon:"🩸",label:"血液検査確認",type:"lab"},
   {id:"img",icon:"📷",label:"画像検査確認",type:"imaging"},
@@ -68,62 +80,21 @@ const getWk = b => {
   const m = new Date(d); m.setDate(d.getDate() + df);
   return Array.from({length:7}, (_, i) => { const x = new Date(m); x.setDate(m.getDate() + i); return x; });
 };
-const fD = d => `${d.getMonth()+1}/${d.getDate()}`;
-const dk = d => d.toISOString().split("T")[0];
+const fD = dateKey;
+const dk = dateKey;
 const isTd = d => dk(d) === dk(new Date());
 const tdL = () => fD(new Date());
-const pMD = s => { if (!s) return null; const p = s.split("/"); return p.length === 2 ? new Date(2026, parseInt(p[0])-1, parseInt(p[1])) : null; };
+const pMD = parseDate;
 const dB = (a, b) => { const s = pMD(a), d = pMD(b); return (s && d) ? Math.round((d - s) / 86400000) + 1 : null; };
 // Cumulative abx day count: walk backwards through contiguous abx orders for this patient
 // "contiguous" = previous abx ends on or after the start of current course (no gap)
-const abxCumDay = (po, currentAbx, todayDateStr) => {
-  if (!currentAbx || currentAbx.type !== "abx" || !currentAbx.startDate) return null;
-  const td = pMD(todayDateStr), curS = pMD(currentAbx.startDate), curE = pMD(currentAbx.endDate || currentAbx.startDate);
-  if (!td || !curS || td < curS || td > curE) return null;
-  // Find earliest startDate by walking backwards through chain of overlapping/contiguous abx orders
-  const allAbx = (po||[]).filter(o => o.type === "abx" && o.startDate && o.endDate)
-    .map(o => ({s: pMD(o.startDate), e: pMD(o.endDate)})).filter(x => x.s && x.e);
-  let earliest = curS;
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const ab of allAbx) {
-      // If this order ends on or after (earliest - 1 day) and starts before earliest -> extend back
-      const gapDays = Math.round((earliest - ab.e) / 86400000);
-      if (ab.s < earliest && gapDays <= 1) { earliest = ab.s; changed = true; }
-    }
-  }
-  return Math.round((td - earliest) / 86400000) + 1;
-};
-// Cockcroft-Gault式
-// CCr [mL/min] = (140 - age) × weight / (72 × Cr) × (0.85 if female)
-// Returns {value, missing} — missing は不足項目の配列
-const cCr = (age, wt, cr, f) => {
-  // Accept comma-as-decimal (e.g. "0,8" → 0.8)
-  const norm = v => typeof v === "string" ? v.replace(",", ".") : v;
-  const a=parseFloat(norm(age)),w=parseFloat(norm(wt)),c=parseFloat(norm(cr));
-  const missing = [];
-  if (isNaN(a) || a <= 0) missing.push("年齢");
-  if (isNaN(w) || w <= 0) missing.push("体重");
-  if (isNaN(c) || c <= 0) missing.push("Cr");
-  if (missing.length) return {value:null, missing};
-  const v = ((140 - a) * w / (72 * c)) * (f ? 0.85 : 1);
-  return {value: v > 0 ? Math.round(v*10)/10 : null, missing:[]};
-};
-// RPIマチュレーションタイム: Hct>40:1, 30-40:1.5, 20-30:2, <20:2.5
-const rpiMaturation = hct => hct > 40 ? 1 : hct >= 30 ? 1.5 : hct >= 20 ? 2 : 2.5;
+
 const bSp = (s, e, d) => { const a = pMD(s), b = pMD(e), c = pMD(d); return a && b && c && c >= a && c <= b; };
-const addDw = s => {
-  if (!s) return "";
-  const pt = s.split("/");
-  if (pt.length !== 2) return s;
-  const dt = new Date(2026, parseInt(pt[0])-1, parseInt(pt[1]));
-  return isNaN(dt.getTime()) ? s : s + DOW[dt.getDay()];
-};
+const addDw = s => {const d=pMD(s);return d?shortDate(d)+DOW[d.getDay()]:s||"";};
 
 // Shared UI
 const ck = (on, col, sz = 14) => ({
-  width: sz, height: sz, borderRadius: 3, flexShrink: 0, cursor: "pointer",
+  width: window.innerWidth<768?Math.max(sz,44):sz, height: window.innerWidth<768?Math.max(sz,44):sz, borderRadius: 6, flexShrink: 0, cursor: "pointer",
   border: on ? "2px solid "+col : "2px solid #CBD5E1",
   background: on ? col : "white",
   display: "flex", alignItems: "center", justifyContent: "center"
@@ -168,7 +139,7 @@ const iPats = [];
 const iOrd = {};
 
 function emptyCell() {
-  return {presetId:null,icon:null,label:"",text:"",type:null,checked:false,priority:null,detail:{},auto:false};
+  return {taskId:crypto.randomUUID(),presetId:null,icon:null,label:"",text:"",type:null,checked:false,priority:null,detail:{},auto:false};
 }
 
 function mkAutoTasks(today, orders, patients) {
@@ -176,6 +147,8 @@ function mkAutoTasks(today, orders, patients) {
   patients.forEach(p => {
     const po = orders[p.id] || [], a = [];
     po.forEach(o => {
+      if(o.taskId)return; // The linked manual task already represents this order.
+      const first=a.length;
       if (o.type === "drip_main" && o.endDate === today)
         a.push({presetId:"drip_expire",icon:"💉",label:"点滴切れ: "+o.name,auto:true});
       if ((o.type === "med" || o.type === "abx") && o.endDate === today)
@@ -188,6 +161,7 @@ function mkAutoTasks(today, orders, patients) {
         a.push({presetId:"rehab_call",icon:"🏃",label:"リハさんに電話"+(o.name?" ("+o.name+")":""),type:"rehab_call",auto:true});
       if (o.type === "msw_call" && o.dates?.includes(today))
         a.push({presetId:"msw_call",icon:"👩‍⚕️",label:"MSWに電話"+(o.name?" ("+o.name+")":""),type:"msw_call",auto:true});
+      for(let i=first;i<a.length;i++){a[i].carryId=`${p.id}:${o.id}:${today}:${a[i].presetId}`;a[i].sourceOrderId=o.id;a[i].sourceDate=today;}
     });
     t[p.id] = a;
   });
@@ -198,15 +172,16 @@ const CARE_LEVELS = ["なし","要支援1","要支援2","要介護1","要介護2
 const FAMILY_OPTS = ["配偶者","子供","独居","施設入所","キーパーソン遠方"];
 
 // Modals
-function PatientModal({onSave, onDelete, onClose, edit, doctors, usedColors}) {
+function PatientModal({wards = WARDS,onSave, onDelete, onClose, edit, doctors, usedColors}) {
   const autoColor = () => { const used = usedColors||[]; return COLORS.find(c => !used.includes(c)) || COLORS[0]; };
   // Convert M/D string to YYYY-MM-DD for date input
-  const toDateVal = s => { const d = pMD(s); if (!d) return ""; const m = String(d.getMonth()+1).padStart(2,"0"), dd = String(d.getDate()).padStart(2,"0"); return `2026-${m}-${dd}`; };
-  const fromDateVal = v => { if (!v) return ""; const [,m,d] = v.split("-"); return `${parseInt(m)}/${parseInt(d)}`; };
-  const initAdmit = edit ? toDateVal(edit.admitDate) : toDateVal(tdL());
-  const [f, setF] = useState(edit || {name:"",room:"",bedNo:"",age:"",sex:"M",diagnosis:"",color:autoColor(),doctor:"",admitDate:tdL(),weight:"",cr:"",family:"",careLevel:"",dischargePlan:"",lastFamilyCall:""});
+  const toDateVal = s => { const d = pMD(s); if (!d) return ""; const m = String(d.getMonth()+1).padStart(2,"0"), dd = String(d.getDate()).padStart(2,"0"); return `${d.getFullYear()}-${m}-${dd}`; };
+  const fromDateVal = v => v || "";
+  const initAdmit = edit ? (edit.admitDateISO || toDateVal(edit.admitDate)) : new Date().toLocaleDateString("sv-SE");
+  const [f, setF] = useState(edit || {name:"",room:"",bedNo:"",age:"",sex:"",diagnosis:"",color:autoColor(),doctor:"",admitDate:tdL(),weight:"",cr:"",family:"",careLevel:"",dischargePlan:"",lastFamilyCall:""});
   const [admitDateVal, setAdmitDateVal] = useState(initAdmit);
   const [newDr, setNewDr] = useState("");
+  const [formError, setFormError] = useState("");
   const [showCare, setShowCare] = useState(!!(edit?.careLevel));
   const [showFamily, setShowFamily] = useState(!!(edit?.family));
   const sv = (k, v) => setF(p => ({...p, [k]: v}));
@@ -240,7 +215,8 @@ function PatientModal({onSave, onDelete, onClose, edit, doctors, usedColors}) {
               <Lbl>病棟 *</Lbl>
               <select value={f.room} onChange={e => sv("room",e.target.value)} style={{...I,padding:"8px 6px"}}>
                 <option value="">選択</option>
-                {WARDS.map(w => <option key={w}>{w}</option>)}
+                {edit?.room && !wards.includes(edit.room) && <option value={edit.room}>{edit.room}（既存の病棟）</option>}
+                {wards.map(w => <option key={w}>{w}</option>)}
               </select>
             </div>
             <div style={{flex:0.9}}>
@@ -264,7 +240,7 @@ function PatientModal({onSave, onDelete, onClose, edit, doctors, usedColors}) {
             <div style={{flex:2}}><Lbl>診断名</Lbl><input value={f.diagnosis} onChange={e => sv("diagnosis",e.target.value)} placeholder="肺炎" style={I}/></div>
             <div style={{flex:1}}>
               <Lbl>入院日</Lbl>
-              <input type="date" value={admitDateVal} onChange={e => { setAdmitDateVal(e.target.value); sv("admitDate", fromDateVal(e.target.value)); }} style={{...I,padding:"7px 6px"}}/>
+              <input type="date" value={admitDateVal} onInput={e => { setAdmitDateVal(e.currentTarget.value); sv("admitDate", fromDateVal(e.currentTarget.value)); sv("admitDateISO", e.currentTarget.value); }} onChange={e => { setAdmitDateVal(e.target.value); sv("admitDate", fromDateVal(e.target.value)); sv("admitDateISO", e.target.value); }} style={{...I,padding:"7px 6px"}}/>
             </div>
           </div>
           {/* 主治医 */}
@@ -281,8 +257,22 @@ function PatientModal({onSave, onDelete, onClose, edit, doctors, usedColors}) {
           <div style={{display:"flex",gap:8}}>
             <div style={{flex:1}}><Lbl>身長 (cm)</Lbl><input value={f.height||""} onChange={e => sv("height",e.target.value)} placeholder="165" style={I} type="number"/></div>
             <div style={{flex:1}}><Lbl>体重 (kg)</Lbl><input value={f.weight} onChange={e => sv("weight",e.target.value)} placeholder="60" style={I} type="number"/></div>
-            <div style={{flex:1}}><Lbl>Cr</Lbl><input value={f.cr} onChange={e => sv("cr",e.target.value)} placeholder="0.8" style={I} type="number" step="0.1"/></div>
+            <div style={{flex:1}}><Lbl>Cr (mg/dL)</Lbl><input value={f.cr} onChange={e => sv("cr",e.target.value)} placeholder="0.8" style={I} type="number" step="0.1"/></div>
           </div>
+          <div style={{padding:12,background:"#F0F4F9",borderRadius:10}}>
+            <label style={{display:"block",fontSize:14,fontWeight:700}}>CCr（手入力・mL/min）
+              <input aria-label="CCr（手入力・mL/min）" type="number" min="0" step="any" value={f.ccrManual ?? ""} onChange={e => sv("ccrManual",e.target.value)} placeholder="確認済みの値" style={{...I,fontSize:16,minHeight:44,marginTop:6}}/>
+            </label>
+            <label style={{display:"block",fontSize:13,marginTop:8}}>CCr確認日（任意）
+              <input aria-label="CCr確認日" type="date" value={f.ccrRecordedOn || ""} onInput={e => sv("ccrRecordedOn",e.currentTarget.value)} onChange={e => sv("ccrRecordedOn",e.target.value)} style={{...I,fontSize:16,minHeight:44}}/>
+            </label>
+            <p style={{fontSize:12,lineHeight:1.6,margin:"8px 0 0"}}>手入力があれば優先表示します。空欄の場合は、年齢・体重・Cr・性別から従来の推算値を表示します。手入力値は自動更新されません。</p>
+          </div>
+          <label style={{display:"block",fontSize:14,fontWeight:700}}>緊急度（自分で指定）
+            <select aria-label="患者の緊急度" value={f.urgency || ""} onChange={e => sv("urgency",e.target.value)} style={{...I,fontSize:16,minHeight:44,marginTop:6}}>
+              {Object.entries(URGENCY_LABELS).map(([value,label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
           {/* 介護度 トグル */}
           <div>
             <ToggleHeader label="介護度" open={showCare} onToggle={() => setShowCare(p => !p)} value={f.careLevel||undefined}/>
@@ -311,10 +301,11 @@ function PatientModal({onSave, onDelete, onClose, edit, doctors, usedColors}) {
             </div>
           )}
         </div>
+        {formError && <p role="alert" style={{color:"#B91C1C",padding:"0 20px"}}>{formError}</p>}
         <div style={{padding:"14px 20px",borderTop:"1px solid #E2E8F0",display:"flex",flexDirection:"column",gap:8,flexShrink:0}}>
           <div style={{display:"flex",gap:8}}>
             <button onClick={onClose} style={{flex:1,border:"1px solid #E2E8F0",background:"white",borderRadius:10,padding:"10px",fontSize:13,cursor:"pointer",fontWeight:600}}>キャンセル</button>
-            <button onClick={() => { if (!f.name||!f.room) return; onSave({...f,id:edit?.id||"p_"+Date.now(),age:parseInt(f.age)||0,height:parseFloat(f.height)||0,weight:parseFloat(f.weight)||0,cr:parseFloat(f.cr)||0}); onClose(); }}
+            <button onClick={() => { if (!f.name||!f.room) { setFormError("氏名と病棟を入力してください。"); return; } if (f.ccrManual !== "" && f.ccrManual != null && manualCCr(f.ccrManual) === null) { setFormError("CCrは0以上の数値を入力してください。"); return; } onSave({...f,ccrManual:manualCCr(f.ccrManual),admitDateISO:admitDateVal,id:edit?.id||"p_"+Date.now(),age:f.age === "" ? "" : Number(f.age),height:parseFloat(f.height)||0,weight:parseFloat(f.weight)||0,cr:parseFloat(f.cr)||0}); onClose(); }}
               style={{flex:2,border:"none",background:"#5C7A93",color:"white",borderRadius:10,padding:"10px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
               {edit ? "更新" : "登録"}
             </button>
@@ -332,14 +323,14 @@ function PatientModal({onSave, onDelete, onClose, edit, doctors, usedColors}) {
 }
 
 function DischargeModal({patient, onConfirm, onCancel}) {
-  const toDateVal = s => { const d = pMD(s); if (!d) return ""; const m = String(d.getMonth()+1).padStart(2,"0"), dd = String(d.getDate()).padStart(2,"0"); return `2026-${m}-${dd}`; };
-  const fromDateVal = v => { if (!v) return ""; const [,m,d] = v.split("-"); return `${parseInt(m)}/${parseInt(d)}`; };
+  const toDateVal = s => { const d = pMD(s); if (!d) return ""; const m = String(d.getMonth()+1).padStart(2,"0"), dd = String(d.getDate()).padStart(2,"0"); return `${d.getFullYear()}-${m}-${dd}`; };
+  const fromDateVal = v => v || "";
   // Default discharge date = today
-  const todayStr = (() => { const d = new Date(); const m = String(d.getMonth()+1).padStart(2,"0"), dd = String(d.getDate()).padStart(2,"0"); return `2026-${m}-${dd}`; })();
+  const todayStr = (() => { const d = new Date(); const m = String(d.getMonth()+1).padStart(2,"0"), dd = String(d.getDate()).padStart(2,"0"); return `${d.getFullYear()}-${m}-${dd}`; })();
   const [dischDate, setDischDate] = useState(patient.plannedDischargeDate ? toDateVal(patient.plannedDischargeDate) : todayStr);
-  const [fu, setFu] = useState(patient.followUp ? toDateVal(patient.followUp) : "");
-  const [hasFU, setHasFU] = useState(!!patient.followUp);
-  const [fuMemo, setFuMemo] = useState(patient.followUpMemo || "");
+  const [fu, setFu] = useState((patient.plannedFollowUp || patient.followUp) ? toDateVal(patient.plannedFollowUp || patient.followUp) : "");
+  const [hasFU, setHasFU] = useState(!!(patient.plannedFollowUp || patient.followUp));
+  const [fuMemo, setFuMemo] = useState(patient.plannedFollowUpMemo || patient.followUpMemo || "");
   const isFuture = dischDate && dischDate > todayStr;
   return (
     <div style={{position:"fixed",inset:0,zIndex:300,background:"rgba(15,23,42,0.6)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={onCancel}>
@@ -349,9 +340,9 @@ function DischargeModal({patient, onConfirm, onCancel}) {
 
         <div style={{marginBottom:14}}>
           <div style={{fontSize:11,color:"#64748B",fontWeight:700,marginBottom:4}}>退院日</div>
-          <input type="date" value={dischDate} onChange={e=>setDischDate(e.target.value)}
+          <input type="date" value={dischDate} onInput={e=>setDischDate(e.currentTarget.value)} onChange={e=>setDischDate(e.target.value)}
             style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:8,padding:"8px 10px",fontSize:14,outline:"none",boxSizing:"border-box"}}/>
-          {isFuture && <p style={{margin:"6px 0 0",fontSize:11,color:"#5C7A93",fontWeight:600}}>📅 退院予定として登録 → 当日まで通常運用、当日自動的に退院扱い</p>}
+          {isFuture && <p style={{margin:"6px 0 0",fontSize:11,color:"#5C7A93",fontWeight:600}}>📅 退院予定として登録 → 当日まで通常運用、当日に実施確認して退院扱いにします</p>}
         </div>
 
         <div style={{marginBottom:14}}>
@@ -364,7 +355,7 @@ function DischargeModal({patient, onConfirm, onCancel}) {
           <>
             <div style={{marginBottom:14}}>
               <div style={{fontSize:11,color:"#64748B",fontWeight:700,marginBottom:4}}>外来フォロー日</div>
-              <input type="date" value={fu} onChange={e=>setFu(e.target.value)}
+              <input type="date" value={fu} onInput={e=>setFu(e.currentTarget.value)} onChange={e=>setFu(e.target.value)}
                 style={{width:"100%",border:"1px solid #E2E8F0",borderRadius:8,padding:"8px 10px",fontSize:14,outline:"none",boxSizing:"border-box"}}/>
             </div>
             <div style={{marginBottom:14}}>
@@ -517,16 +508,23 @@ function TaskCell({cell, onUpdate, color, onComplete, onPriority, onCultureDone,
 }
 
 // ===== LOCAL STORAGE HELPERS =====
-const loadLS = (key, fallback) => { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; } };
-const saveLS = (key, val) => { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} };
+const loadLS = (key, fallback) => { try { const v = localStorage.getItem(key); return v ? migrateDates(JSON.parse(v)) : fallback; } catch { throw new Error("保存データを読み込めませんでした。元のデータを保全してから復旧してください。"); } };
+let storageConflict=false;
+const saveLS = (key, val) => { if(storageConflict)return; try { localStorage.setItem(key, JSON.stringify(val)); } catch { window.dispatchEvent(new CustomEvent("ward-storage-error", {detail:"保存できていません。バックアップからファイルを書き出し、空き容量を確認してください。"})); } };
 
 // Backup helpers — keys subject to backup
-const BACKUP_KEYS = ["ward_patients_v2","ward_discharged_v2","ward_orders_v2","ward_patCats_v2","ward_rLabs_v2","ward_taskDB","ward_consults_v2","ward_orderNoNeeded","ward_dutyNotes"];
+const BACKUP_KEYS = ["ward_patients_v2","ward_discharged_v2","ward_orders_v2","ward_patCats_v2","ward_rLabs_v2","ward_taskDB","ward_consults_v2","ward_orderNoNeeded","ward_dutyNotes","ward_settings_v1","ward_names_v1","ward_aCL","ward_dCL","ward_studyList"];
+window.addEventListener("storage",e=>{if(BACKUP_KEYS.includes(e.key)&&e.oldValue!==e.newValue){storageConflict=true;window.dispatchEvent(new Event("ward-other-tab"));}});
 const collectBackup = () => { const o = {}; BACKUP_KEYS.forEach(k => { const v = localStorage.getItem(k); if (v) o[k] = v; }); return o; };
-const applyBackup = (snap) => { BACKUP_KEYS.forEach(k => { if (snap[k] != null) localStorage.setItem(k, snap[k]); }); };
+const applyBackup = snap => {
+  const valid=validateBackup(snap,BACKUP_KEYS), before=collectBackup();
+  localStorage.setItem("ward_backup_before_restore_"+Date.now(),JSON.stringify(before));
+  try {BACKUP_KEYS.forEach(k=>{if(valid[k]!=null)localStorage.setItem(k,valid[k]);else localStorage.removeItem(k);});}
+  catch(error){BACKUP_KEYS.forEach(k=>{if(before[k]!=null)localStorage.setItem(k,before[k]);else localStorage.removeItem(k);});throw error;}
+};
 const listBackups = () => Object.keys(localStorage).filter(k => k.startsWith("ward_backup_")).sort().reverse();
 const saveDailyBackup = () => {
-  const today = new Date().toISOString().slice(0,10);
+  const today = dateKey(new Date());
   const key = "ward_backup_" + today;
   if (localStorage.getItem(key)) return; // already backed up today
   try {
@@ -539,18 +537,29 @@ const saveDailyBackup = () => {
 
 // ===== MAIN APP =====
 export default function App() {
+  const [undoAction, setUndoAction] = useState(null);
+  const [otherTab,setOtherTab]=useState(false);
+  useEffect(()=>{const fn=()=>setOtherTab(true);window.addEventListener("ward-other-tab",fn);return()=>window.removeEventListener("ward-other-tab",fn);},[]);
+  const [storageError, setStorageError] = useState("");
+  useEffect(() => { const fn = e => setStorageError(e.detail); window.addEventListener("ward-storage-error", fn); return () => window.removeEventListener("ward-storage-error", fn); }, []);
   const [selDate, setSelDate] = useState(new Date());
   const wk = useMemo(() => getWk(selDate), [selDate]);
   const [backupModal, setBackupModal] = useState(false);
+  const [checklistEditor,setChecklistEditor]=useState(null);
+  const [orderEditor, setOrderEditor] = useState(null);
+  const [settingsModal, setSettingsModal] = useState(false);
+  const [wardNames, setWardNames] = useState(() => loadLS("ward_names_v1", WARDS));
+  const [wardSettings, setWardSettings] = useState(() => loadLS("ward_settings_v1", {}));
   const [handoffModal, setHandoffModal] = useState(false);
   // Run daily auto-backup on mount
   useEffect(() => { saveDailyBackup(); }, []);
   const [patients, setPatients] = useState(() => loadLS("ward_patients_v2", iPats));
   const [discharged, setDischarged] = useState(() => loadLS("ward_discharged_v2", []));
-  const wardOrder = r => { const i = WARDS.indexOf(r); return i >= 0 ? i : 99; };
-  const sortedPats = useMemo(() => [...patients].sort((a,b) => wardOrder(a.room) - wardOrder(b.room)), [patients]);
+  const wardOrder = r => { const i = wardNames.indexOf(r); return i >= 0 ? i : 99; };
+  const sortedPats = useMemo(() => [...patients].sort((a,b) => wardOrder(a.room) - wardOrder(b.room)), [patients, wardNames]);
   const doctors = useMemo(() => [...new Set(patients.map(p => p.doctor).filter(Boolean))].sort(), [patients]);
   const [orders, setOrders] = useState(() => loadLS("ward_orders_v2", {}));
+  const [categoryVisibility,setCategoryVisibility]=useState(null);
   const [patCats, setPatCats] = useState(() => loadLS("ward_patCats_v2", {}));
   const [rLabs, setRLabs] = useState(() => loadLS("ward_rLabs_v2", {}));
   // orderNoNeeded[pid] = {med:bool, drip:bool, lab:bool} — explicitly marked "なし"
@@ -562,8 +571,10 @@ export default function App() {
   const [showCatMenu, setShowCatMenu] = useState({});
   const [expP, setExpP] = useState({});
   const [showCL, setShowCL] = useState({});
-  const [aCL, setACL] = useState({});
-  const [dCL, setDCL] = useState({});
+  const [aCL, setACL] = useState(() => loadLS("ward_aCL", {}));
+  useEffect(() => { saveLS("ward_aCL", aCL); }, [aCL]);
+  const [dCL, setDCL] = useState(() => loadLS("ward_dCL", {}));
+  useEffect(() => { saveLS("ward_dCL", dCL); }, [dCL]);
   const [rlOpen, setRlOpen] = useState({});
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   useEffect(() => {
@@ -573,7 +584,7 @@ export default function App() {
   }, []);
   // Drag uses Pointer Events (no global listeners needed)
   const [mobileTab, setMobileTab] = useState("todo");
-  const [todayView, setTodayView] = useState("summary"); // "summary" | "cards"
+  const [todayView, setTodayView] = useState("cards"); // "summary" | "cards"
   const [showAddAM, setShowAddAM] = useState({});
   const [showAddPM, setShowAddPM] = useState({});
   const [summaryAddMenu, setSummaryAddMenu] = useState(null); // {taskKey, pid, pfx}
@@ -582,8 +593,11 @@ export default function App() {
   const [dischargeModal, setDischargeModal] = useState(null); // {patient}
   const [panel, setPanel] = useState("schedule");
   const [filterDoctor, setFilterDoctor] = useState("all");
+  const [floorFilter, setFloorFilter] = useState("all");
+  const [patientSort, setPatientSort] = useState("ward");
   const [showDrFilter, setShowDrFilter] = useState(false);
-  const filteredPats = useMemo(() => filterDoctor === "all" ? sortedPats : sortedPats.filter(p => p.doctor === filterDoctor), [sortedPats, filterDoctor]);
+  const filteredPats = useMemo(() => selectPatients(sortedPats, {doctor:filterDoctor, floor:floorFilter, sort:patientSort}), [sortedPats, filterDoctor, floorFilter, patientSort]);
+  const floors = [...new Set([...wardNames.map(patientFloor),...patients.map(p => patientFloor(p.room))])].sort((a,b) => (Number(a)||99)-(Number(b)||99));
   useEffect(() => { saveLS("ward_patients_v2", patients); }, [patients]);
   useEffect(() => { saveLS("ward_discharged_v2", discharged); }, [discharged]);
   useEffect(() => { saveLS("ward_orders_v2", orders); }, [orders]);
@@ -671,64 +685,53 @@ export default function App() {
     setPatients(pr => pr.filter(x => x.id !== pid));
     setDischargeModal(null);
   };
-  // Auto-process planned discharges: when current date >= plannedDischargeDate, move patient to discharged
-  useEffect(() => {
-    const todayD = pMD(today);
-    if (!todayD) return;
-    patients.forEach(p => {
-      if (!p.plannedDischargeDate) return;
-      const pd = pMD(p.plannedDischargeDate);
-      if (pd && pd <= todayD) {
-        const pendingDischTasks = DISCH_CL.filter(x => !dCL[p.id+"_d_"+x]);
-        const infoLetterUnchecked = !aCL[p.id+"_a_かかりつけ診療情報提供書"];
-        setDischarged(pr => [...pr, {...p, dischargeDate: p.plannedDischargeDate, followUp: p.plannedFollowUp||"", followUpMemo: p.plannedFollowUpMemo||"", infoLetterUnchecked, pendingDischTasks}]);
-        setPatients(pr => pr.filter(x => x.id !== p.id));
-      }
-    });
-  }, [today]);
   const markDischTask = (pid, task) => {
     setDischarged(pr => pr.map(p => p.id === pid ? {...p, pendingDischTasks: (p.pendingDischTasks||[]).filter(t => t !== task)} : p));
   };
   const deletePat = pid => {
+    const patient=patients.find(p=>p.id===pid), previousOrders=orders[pid], previousCats=patCats[pid], previousLabs=rLabs[pid];
+    setUndoAction({label:"患者を削除しました",run:()=>{setPatients(prev=>[...prev,patient]);setOrders(prev=>({...prev,[pid]:previousOrders||[]}));setPatCats(prev=>({...prev,[pid]:previousCats||DEFAULT_CATS}));setRLabs(prev=>({...prev,[pid]:previousLabs||{}}));}});
     setPatients(pr => pr.filter(x => x.id !== pid));
     setOrders(pr => { const n = {...pr}; delete n[pid]; return n; });
     setPatCats(pr => { const n = {...pr}; delete n[pid]; return n; });
     setRLabs(pr => { const n = {...pr}; delete n[pid]; return n; });
-    setTaskDB(pr => { const n = {}; Object.keys(pr).forEach(d => { const day = {...pr[d]}; delete day[pid]; n[d] = day; }); return n; });
+
   };
-  const extBar = (pid, oid, ds) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => {
-    if (o.id !== oid) return o;
-    if (!o.startDate) return {...o, startDate: ds, endDate: ds}; // 未配置→クリック日に配置
-    const s = pMD(o.startDate), d = pMD(ds);
-    if (!s || !d) return {...o, startDate: ds, endDate: ds};
-    if (d < s) return {...o, startDate: ds}; // 開始日より前→開始日を移動
-    return {...o, endDate: ds}; // 開始日以降→終了日を延長/短縮
-  })}));
-  const togDot = (pid, oid, ds, noRemove) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => { if (o.id !== oid) return o; const d = o.dates||[]; if (d.includes(ds)) { if (noRemove) return o; return {...o, dates: d.filter(x => x !== ds)}; } return {...o, dates: [...d, ds].sort()}; })}));
-  const addOrd = (pid, type) => { setOrders(p => ({...p, [pid]: [...(p[pid]||[]), {id:Date.now(),type,name:"",dates:type==="abx"?undefined:[],...(type.startsWith("culture")?{resultDate:""}:{})}]})); };
-  const rmOrd = (pid, oid) => setOrders(p => ({...p, [pid]: (p[pid]||[]).filter(o => o.id !== oid)}));
+  const editScheduleDate = (pid,oid,ds,range=false) => {
+    const before=orders[pid]?.find(o=>o.id===oid);if(!before)return;
+    const after=changeScheduleDate(before,ds,range);
+    setOrders(prev=>({...prev,[pid]:(prev[pid]||[]).map(o=>o.id===oid?after:o)}));
+    setUndoAction({label:shortDate(ds)+(range?'までの期間を変更しました':(before.dates||[]).includes(ds)?'の予定を外しました':'に予定を追加しました'),run:()=>setOrders(prev=>({...prev,[pid]:(prev[pid]||[]).map(o=>o.id===oid?{...o,startDate:before.startDate,endDate:before.endDate,dates:before.dates,confirmations:before.confirmations}:o)}))});
+  };
+  const extBar = (pid,oid,ds)=>editScheduleDate(pid,oid,ds,true);
+  const togDot = (pid,oid,ds)=>editScheduleDate(pid,oid,ds,false);
+  const addOrd = (pid, type) => { if(type==="abx"){setOrderEditor({patient:patients.find(p=>p.id===pid),order:{id:Date.now(),type:"abx",name:"",dates:[]},isNew:true});return;} setOrders(p => ({...p, [pid]: [...(p[pid]||[]), {id:Date.now(),type,name:"",dates:type==="abx"?undefined:[],...(type.startsWith("culture")?{resultDate:""}:{})}]})); };
+  const rmOrd = (pid, oid) => { const removed = orders[pid]?.find(o => o.id === oid); if (!removed) return; setUndoAction({label:"予定を削除しました", run:() => setOrders(p => ({...p,[pid]:[...(p[pid]||[]),removed]}))}); setOrders(p => ({...p, [pid]: (p[pid]||[]).filter(o => o.id !== oid)})); };
   const updNm = (pid, oid, n) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => o.id === oid ? {...o, name: n} : o)}));
-  const markCulDone = (pid, oid) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => o.id === oid ? {...o, resultDate: today} : o)}));
-  const markImgDone = (pid, oid) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => o.id === oid ? {...o, reportConfirmed: true} : o)}));
+  const markCulDone = (pid, oid) => setOrderEditor({patient:patients.find(p=>p.id===pid),order:orders[pid].find(o=>o.id===oid)});
+  const markImgDone = (pid, oid) => setOrderEditor({patient:patients.find(p=>p.id===pid),order:orders[pid].find(o=>o.id===oid)});
   const updGram = (pid, oid, val) => setOrders(p => ({...p, [pid]: (p[pid]||[]).map(o => o.id === oid ? {...o, gramResult: val} : o)}));
   const addCultureOrd = (pid, specimen) => setOrders(p => ({...p, [pid]: [...(p[pid]||[]), {id:Date.now(), type:"culture", specimen, gramResult:"", dates:[], resultDate:""}]}));
-  // 定期処方の曜日マップ（病棟階数→曜日番号: 0=日,1=月,...,5=金,6=土）
-  // 4階:火(2), 5階:水(3), 6階:木(4), 7階:金(5), HCU:なし
-  const regRxWeekday = room => {
-    if (!room || room === "HCU") return null;
-    const floor = parseInt(room[0]);
-    if (floor === 4) return 2;
-    if (floor === 5) return 3;
-    if (floor === 6) return 4;
-    if (floor === 7) return 5;
-    return null;
+  // New hospitals have no assumed prescription weekdays.
+  const regRxWeekday = room => prescriptionWeekday(wardSettings, room);
+  const saveWardSettings = (next, names, renames) => {
+    const oldNames=localStorage.getItem("ward_names_v1"), oldSettings=localStorage.getItem("ward_settings_v1");
+    try {localStorage.setItem("ward_names_v1",JSON.stringify(names));localStorage.setItem("ward_settings_v1",JSON.stringify(next));}
+    catch(error){if(oldNames===null)localStorage.removeItem("ward_names_v1");else localStorage.setItem("ward_names_v1",oldNames);if(oldSettings===null)localStorage.removeItem("ward_settings_v1");else localStorage.setItem("ward_settings_v1",oldSettings);throw error;}
+    setWardNames(names);
+    const updatedPatients = patients.map(p => ({...p, room:renames[p.room] || p.room}));
+    setPatients(updatedPatients);
+    setDischarged(prev => prev.map(p => ({...p, room:renames[p.room] || p.room})));
+    setWardSettings(next);
+    setOrders(prev => updatePrescriptionWeekdays(prev, updatedPatients, next));
+    setSettingsModal(false);
   };
   // 定期処方をサブスクリプション登録：regWeekday 設定。dates[]は処方完了した日のリスト
   const addRegRx = (pid) => {
     const p = patients.find(x => x.id === pid); if (!p) return;
     const wd = regRxWeekday(p.room);
     if (wd === null) {
-      alert("HCUまたは不明な病棟のため、定期処方の曜日が設定されていません");
+      setSettingsModal(true);
       return;
     }
     setOrders(prv => ({...prv, [pid]: [...(prv[pid]||[]), {id:Date.now(), type:"med", name:"定期処方", regWeekday:wd, dates:[]}]}));
@@ -736,7 +739,6 @@ export default function App() {
   // 部屋変更時に定期処方の曜日を自動更新
   const shiftRegRxForNewRoom = (pid, newRoom) => {
     const newWd = regRxWeekday(newRoom);
-    if (newWd === null) return;
     setOrders(prv => {
       const po = prv[pid]; if (!po) return prv;
       let changed = false;
@@ -751,31 +753,18 @@ export default function App() {
   };
 
   // Sync TODO task → weekly schedule orders
-  const syncTaskToOrder = (pid, newCell, oldCell) => {
-    const orderTypeMap = { lab: "lab", imaging: "img", culture: "culture_blood", family_call: "family_call", rehab_call: "rehab_call", msw_call: "msw_call" };
-    const newOrdType = (newCell.presetId && !newCell.auto) ? orderTypeMap[newCell.type] : null;
-    const oldOrdType = (oldCell?.presetId && !oldCell?.auto) ? orderTypeMap[oldCell.type] : null;
-    if (newOrdType === oldOrdType) return;
-    if (oldOrdType) {
-      setOrders(prev => {
-        const pOrds = prev[pid] || [];
-        const ord = pOrds.find(o => o.type === oldOrdType && o.dates?.includes(selDateStr));
-        if (!ord) return prev;
-        return {...prev, [pid]: pOrds.map(o => o.id === ord.id ? {...o, dates: ord.dates.filter(d => d !== selDateStr)} : o)};
-      });
-    }
-    if (newOrdType) {
-      setOrders(prev => {
-        const pOrds = prev[pid] || [];
-        const ord = pOrds.find(o => o.type === newOrdType);
-        if (ord) {
-          if (ord.dates?.includes(selDateStr)) return prev;
-          return {...prev, [pid]: pOrds.map(o => o.id === ord.id ? {...o, dates: [...(o.dates||[]), selDateStr].sort()} : o)};
-        }
-        const nameMap = { lab: "血液検査", img: "画像検査", culture_blood: "培養(血液)" };
-        return {...prev, [pid]: [...pOrds, {id: Date.now(), type: newOrdType, name: nameMap[newOrdType]||"検査", dates: [selDateStr]}]};
-      });
-    }
+  const syncTaskToOrder = (pid,newCell,oldCell) => {
+    const types={lab:"lab",imaging:"img",culture:"culture",family_call:"family_call",rehab_call:"rehab_call",msw_call:"msw_call"};
+    const nextType=newCell.presetId&&!newCell.auto?types[newCell.type]:null;
+    const oldType=oldCell?.presetId&&!oldCell.auto?types[oldCell.type]:null;
+    if(nextType===oldType)return;
+    setOrders(prev=>{
+      let po=prev[pid]||[];
+      // Only remove the order created by this task, never a separate clinical order.
+      if(oldType&&oldCell.taskId)po=po.filter(o=>o.taskId!==oldCell.taskId);
+      if(nextType&&newCell.taskId&&!po.some(o=>o.taskId===newCell.taskId))po=[...po,{id:"task_"+newCell.taskId,taskId:newCell.taskId,type:nextType,name:{lab:"血液検査",img:"画像検査",culture:"培養",family_call:"家族連絡",rehab_call:"リハ連絡",msw_call:"MSW連絡"}[nextType],dates:[selDateStr]}];
+      return {...prev,[pid]:po};
+    });
   };
 
   // Date-keyed task storage
@@ -791,16 +780,8 @@ export default function App() {
   useEffect(() => { saveLS("ward_taskDB", taskDB); }, [taskDB]);
   const ensureDay = dateStr => {
     setTaskDB(prev => {
-      if (prev[dateStr]) return prev;
       const fresh = mkEmptyDay(patients, dateStr);
-      const prevDate = new Date(selDate); prevDate.setDate(prevDate.getDate()-1);
-      const prevStr = fD(prevDate);
-      const prevDay = prev[prevStr];
-      if (prevDay) {
-        Object.entries(prevDay.am).forEach(([k,v]) => { if (v.presetId && !v.checked && !v.auto) fresh.am[k] = {...v, priority: null}; });
-        Object.entries(prevDay.pm).forEach(([k,v]) => { if (v.presetId && !v.checked && !v.auto) fresh.pm[k] = {...v, priority: null}; });
-      }
-      return {...prev, [dateStr]: fresh};
+      return {...prev, [dateStr]: carryTasks(prev,dateStr,fresh)};
     });
   };
   useEffect(() => { ensureDay(selDateStr); }, [selDateStr]);
@@ -810,7 +791,7 @@ export default function App() {
   // Reactive auto-tasks: recalculated whenever orders change, merged with stored AM
   const amC = useMemo(() => {
     const auto = mkAutoTasks(selDateStr, orders, sortedPats);
-    const merged = {...storedAm};
+    const merged = Object.fromEntries(Object.entries(storedAm).filter(([,v])=>!v.auto||v.carriedOn||!v.sourceOrderId||Object.values(auto).flat().some(a=>a.carryId===v.carryId)));
     // Inject auto-tasks into empty AM slots (don't overwrite manually set tasks)
     sortedPats.forEach(p => {
       const autoItems = auto[p.id] || [];
@@ -823,7 +804,7 @@ export default function App() {
         );
         if (alreadyPresent) return;
         // Inject into first empty slot
-        for (let slot = 0; slot < AM; slot++) {
+        for (let slot = 0; ; slot++) {
           const key = "am"+slot+"_"+p.id;
           if (!merged[key] || !merged[key].presetId) {
             merged[key] = {...emptyCell(), ...a};
@@ -834,42 +815,22 @@ export default function App() {
     });
     return merged;
   }, [storedAm, orders, sortedPats, selDateStr]);
-  const setAmC = fn => setTaskDB(prev => { const d = prev[selDateStr] || mkEmptyDay(patients, selDateStr); return {...prev, [selDateStr]: {...d, am: typeof fn === "function" ? fn(d.am) : fn}}; });
-  const setPmC = fn => setTaskDB(prev => { const d = prev[selDateStr] || mkEmptyDay(patients, selDateStr); return {...prev, [selDateStr]: {...d, pm: typeof fn === "function" ? fn(d.pm) : fn}}; });
+  useEffect(()=>{if(JSON.stringify(storedAm)!==JSON.stringify(amC))setAmC(amC);},[amC,storedAm]);
+  const amLimit = taskSlots(amC,"am",5);
+  const pmLimit = taskSlots(pmC,"pm",4);
+  const setAmC = fn => setTaskDB(prev => { const d = prev[selDateStr] || mkEmptyDay(patients, selDateStr); return {...prev, [selDateStr]: {...d, am: stampTasks(d.am, typeof fn === "function" ? fn(d.am) : fn,selDateStr,"am")}}; });
+  const setPmC = fn => setTaskDB(prev => { const d = prev[selDateStr] || mkEmptyDay(patients, selDateStr); return {...prev, [selDateStr]: {...d, pm: stampTasks(d.pm, typeof fn === "function" ? fn(d.pm) : fn,selDateStr,"pm")}}; });
+  const removeTask = (pid,key,cell) => {
+    const setC=key.startsWith("am")?setAmC:setPmC, previousOrder=orders[pid]?.find(o=>o.taskId===cell.taskId);
+    setUndoAction({label:"タスクを削除しました",run:()=>{setC(prev=>({...prev,[key]:cell}));if(previousOrder)setOrders(prev=>({...prev,[pid]:(prev[pid]||[]).some(o=>o.id===previousOrder.id)?prev[pid]:[...(prev[pid]||[]),previousOrder]}));}});
+    setC(prev=>({...prev,[key]:cell.auto?{...cell,suppressed:true}:emptyCell()}));
+    syncTaskToOrder(pid,emptyCell(),cell);
+  };
   const setVitals = fn => setTaskDB(prev => { const d = prev[selDateStr] || mkEmptyDay(patients, selDateStr); return {...prev, [selDateStr]: {...d, vitals: typeof fn === "function" ? fn(d.vitals) : fn}}; });
   const setKarte = fn => setTaskDB(prev => { const d = prev[selDateStr] || mkEmptyDay(patients, selDateStr); return {...prev, [selDateStr]: {...d, karte: typeof fn === "function" ? fn(d.karte) : fn}}; });
-  // Auto-compact tasks so 一覧 (slot grid) and 詳細 (filtered) views always show same order
-  useEffect(() => {
-    const compact = (cells, prefix, max) => {
-      const next = {...cells};
-      let changed = false;
-      sortedPats.forEach(p => {
-        const filled = [];
-        for (let i = 0; i < max; i++) {
-          const k = prefix + i + "_" + p.id;
-          if (next[k]?.presetId) filled.push(next[k]);
-        }
-        for (let i = 0; i < max; i++) {
-          const k = prefix + i + "_" + p.id;
-          const want = i < filled.length ? filled[i] : null;
-          const cur = next[k];
-          if (want) {
-            if (cur !== want) { next[k] = want; changed = true; }
-          } else if (cur && cur.presetId) {
-            next[k] = emptyCell(); changed = true;
-          }
-        }
-      });
-      return changed ? next : null;
-    };
-    const am2 = compact(amC, "am", AM);
-    if (am2) setAmC(am2);
-    const pm2 = compact(pmC, "pm", PM_R);
-    if (pm2) setPmC(pm2);
-  }, [amC, pmC, sortedPats]);
   const swapTask = (pfx, slotA, slotB, pid) => {
     const setC = pfx === "am" ? setAmC : setPmC;
-    const max = pfx === "am" ? AM : PM_R;
+    const max = pfx === "am" ? amLimit : pmLimit;
     if (slotA < 0 || slotB < 0 || slotA >= max || slotB >= max) return;
     setC(prev => {
       const kA = pfx+slotA+"_"+pid, kB = pfx+slotB+"_"+pid;
@@ -885,7 +846,7 @@ export default function App() {
       const startY = e.clientY;
       let currentSlot = slot;
       let lastSwapY = startY;
-      const max = pfx === "am" ? AM - 1 : PM_R - 1;
+      const max = pfx === "am" ? amLimit - 1 : pmLimit - 1;
       const cells = pfx === "am" ? amC : pmC;
       // Find next/prev filled slot relative to current
       const findNeighbor = (from, dir) => {
@@ -939,12 +900,9 @@ export default function App() {
     sortedPats.forEach(p => {
       const items = [];
       (orders[p.id]||[]).forEach(o => {
-        if (o.type?.startsWith("culture") && o.dates?.[0] && (!o.resultDate || o.resultDate === "")) {
-          const d = dB(o.dates[0], selDateStr);
-          if (d && d >= 1) items.push({type:"culture",icon:"🧫",name:o.specimen||o.name||"培養",day:d,orderId:o.id});
+        if(o.type?.startsWith("culture") || o.type === "img") {
+          (o.dates||[]).filter(date=>date<=selDateStr&&!occurrenceDone(o,date)).forEach(date=>items.push({type:o.type==='img'?'img':'culture',icon:o.type==='img'?'📷':'🧫',name:(o.specimen||o.name||'検査')+' '+shortDate(date),day:o.type==='img'?null:dB(date,selDateStr),orderId:o.id,occurrenceDate:date}));
         }
-        if (o.type === "img" && o.dates?.length > 0 && !o.reportConfirmed)
-          items.push({type:"img",icon:"📷",name:o.name,orderId:o.id});
       });
       pc[p.id] = items;
     });
@@ -994,9 +952,9 @@ export default function App() {
       // Family call
       const isAlone = (p.family||"").includes("独居");
       const famDates = po.filter(o => o.type === "family_call").flatMap(o => o.dates || []);
-      const lastFamCall = famDates.map(d => pMD(d)).filter(Boolean).sort((a,b) => b-a)[0] || null;
+      const lastFamCall = famDates.map(d => pMD(d)).filter(d=>d&&d<=sd).sort((a,b) => b-a)[0] || null;
       const famDays = lastFamCall ? Math.round((sd - lastFamCall) / 86400000) : null;
-      const famAlert = !isAlone && (famDays === null || famDays >= 7);
+      const famAlert = !isAlone && famDays !== null && famDays >= 7;
       st[p.id] = {
         med: { ...summaryOf(medItems), items: medItems },
         drip: { ...summaryOf(dripItems), items: dripItems },
@@ -1050,7 +1008,8 @@ export default function App() {
 
   const [consults, setConsults] = useState(() => loadLS("ward_consults_v2", {}));
   useEffect(() => { saveLS("ward_consults_v2", consults); }, [consults]);
-  const [studyList, setStudyList] = useState([{id:1,text:"",checked:false},{id:2,text:"",checked:false}]);
+  const [studyList, setStudyList] = useState(() => loadLS("ward_studyList", [{id:1,text:"",checked:false},{id:2,text:"",checked:false}]));
+  useEffect(() => { saveLS("ward_studyList", studyList); }, [studyList]);
   const allC = useMemo(() => ({...amC,...pmC}), [amC, pmC]);
 
   const setPri = (key, val) => {
@@ -1064,10 +1023,10 @@ export default function App() {
     const dn = (prev, own) => { const n = {...prev}; if (own) n[key] = {...c, checked: !was, priority: !was ? null : pri}; if (!was && pri) Object.keys(n).forEach(k => { if (k !== key && n[k].priority && n[k].priority > pri) n[k] = {...n[k], priority: n[k].priority-1}; }); return n; };
     if (key.startsWith("am")) { setAmC(p => dn(p, true)); setPmC(p => dn(p, false)); } else { setPmC(p => dn(p, true)); setAmC(p => dn(p, false)); }
   };
-  const priList = useMemo(() => Object.entries(allC).filter(([,v]) => v.priority && !v.checked && v.presetId)
+  const priList = useMemo(() => Object.entries(allC).filter(([k,v]) => filteredPats.some(p=>k.endsWith("_"+p.id)) && v.priority && !v.checked && v.presetId)
     .map(([key,v]) => ({key,...v,patient:sortedPats.find(p => key.endsWith("_"+p.id))}))
-    .sort((a,b) => a.priority - b.priority), [allC, sortedPats]);
-  const urgList = useMemo(() => { const r = []; patients.forEach(p => (consults[p.id]||[]).forEach(c => { if (c.urgent && !c.checked && c.text) r.push({...c, patient: p}); })); return r; }, [consults, patients]);
+    .sort((a,b) => a.priority - b.priority), [allC, sortedPats, filteredPats]);
+  const urgList = useMemo(() => { const r = []; filteredPats.forEach(p => (consults[p.id]||[]).forEach(c => { if (c.urgent && !c.checked && c.text) r.push({...c, patient: p}); })); return r; }, [consults, filteredPats]);
 
   // Render task rows
   const tdRows = (pfx, col, cells, setC, cnt) => {
@@ -1083,7 +1042,7 @@ export default function App() {
           )}
           {filteredPats.map(p => {
             const key = pfx+ri+"_"+p.id;
-            const cell = cells[key] || emptyCell();
+            const cell = cells[key]?.suppressed ? emptyCell() : cells[key] || emptyCell();
             const cl = COL[p.color];
             return (
               <td key={p.id} style={{padding:"2px 3px",borderBottom:ri===cnt-1?"2px solid #E2E8F0":"1px solid #F7F1E1",borderLeft:"1px solid #F7F1E1",verticalAlign:"top"}}>
@@ -1114,16 +1073,11 @@ export default function App() {
   const renderGanttPatient = p => {
     const c = COL[p.color], po = orders[p.id]||[], isE = expP[p.id];
     const stickyTd = (bg) => ({position:"sticky",left:0,zIndex:2,background:bg||"white"});
-    const cvRes = cCr(p.age, p.weight, p.cr, p.sex === "F");
-    const cv = cvRes.value;
+    const cvRes = patientCCr(p);
+    const enteredCCr = manualCCr(p.ccrManual);
+    const cv = enteredCCr ?? cvRes.value;
     const rl = rLabs[p.id]||{};
-    const fe = rl.fe?.value ? parseFloat(rl.fe.value) : null;
-    const tibc = rl.tibc?.value ? parseFloat(rl.tibc.value) : null;
-    const tsat = (fe && tibc && tibc > 0) ? Math.round(fe/tibc*100) : null;
-    const ret = rl.retic?.value ? parseFloat(rl.retic.value) : null;
-    const hct = rl.hct?.value ? parseFloat(rl.hct.value) : null;
-    // RPI = (Hct/45) × 網赤血球(%) ÷ Maturation time
-    const rpi = (ret && hct) ? Math.round((hct/45) * ret / rpiMaturation(hct) * 10) / 10 : null;
+
     const rows = [];
 
     // Patient header
@@ -1133,7 +1087,7 @@ export default function App() {
           <div style={{display:"flex",alignItems:"center",gap:3}}>
             <div onClick={() => setExpP(pr => ({...pr,[p.id]:!pr[p.id]}))} style={{cursor:"pointer",color:c.dt,display:"flex"}}><Ch open={isE}/></div>
             <span style={{width:7,height:7,borderRadius:"50%",background:c.dt}}/>
-            <span style={{fontSize:11,fontWeight:800}}>{p.name}</span>
+            <span style={{fontSize:11,fontWeight:800}}>{p.name}</span><button onClick={()=>setCategoryVisibility(p.id)} style={{border:0,background:'transparent',fontSize:10,cursor:'pointer'}}>表示項目{p.hiddenScheduleTypes?.length?`(${p.hiddenScheduleTypes.length}非表示)`:''}</button>
             {p.plannedDischargeDate && (
               <span style={{fontSize:8,background:"#E5EDF4",color:"#2D4759",padding:"1px 4px",borderRadius:3,fontWeight:700}}>退院予定 {p.plannedDischargeDate}</span>
             )}
@@ -1142,8 +1096,8 @@ export default function App() {
               style={{border:"none",background:"transparent",color:p.plannedDischargeDate?"#5C7A93":"#C58269",fontSize:9,cursor:"pointer",padding:0,marginLeft:"auto"}}>{p.plannedDischargeDate?"退院予定":"退院"}</button>
           </div>
           <div style={{paddingLeft:17,fontSize:8,color:"#64748B",lineHeight:1.5}}>
-            {p.room}{p.bedNo?"-"+p.bedNo:""}|{p.age}{p.sex==="F"?"♀":"♂"}|{p.diagnosis}<br/>
-            CCr:<b style={{color:cv&&cv<30?"#A6553D":cvRes.missing.length?"#94A3B8":"#334155"}}>{cv ?? (cvRes.missing.length?cvRes.missing.join(",")+"未入力":"—")}</b>
+            {p.room}{p.bedNo?"-"+p.bedNo:""}|{p.age}{p.sex==="F"?"♀":p.sex==="M"?"♂":"性別未入力"}|{p.diagnosis}<br/>
+            緊急度：{URGENCY_LABELS[p.urgency]||"未設定"}
             |家族:{p.family}|介護:{p.careLevel}
           </div>
           {isE && (
@@ -1274,7 +1228,7 @@ export default function App() {
     // Category rows — each category gets a header row; each order gets its own row
     const ALWAYS_SHOW_TYPES = ["abx","drip_main","med","lab","family_call"];
     if (isE) {
-      (patCats[p.id] || DEFAULT_CATS).forEach(cat => {
+      sortSchedule(patCats[p.id] || DEFAULT_CATS).filter(cat=>!(p.hiddenScheduleTypes||[]).includes(cat.type)).forEach(cat => {
         const items = po.filter(o => o.type === cat.type);
         const isAlways = ALWAYS_SHOW_TYPES.includes(cat.type);
         if (items.length === 0 && !isAlways) return;
@@ -1288,16 +1242,13 @@ export default function App() {
                 <span style={{fontWeight:700,fontSize:8,color:"#475569"}}>{cat.label}</span>
                 {cat.type === "culture" ? (
                   <div style={{display:"flex",gap:2,marginLeft:"auto"}}>
-                    {["血液","尿","痰"].map(sp => (
-                      <button key={sp} onClick={() => addCultureOrd(p.id, sp)}
-                        style={{border:"1px solid #E2E8F0",background:"white",borderRadius:4,fontSize:9,padding:"0 4px",cursor:"pointer",color:c.dt,fontWeight:700}}>+{sp}</button>
-                    ))}
+                    <select aria-label={`${p.name}の培養を追加`} value="" onChange={e=>{if(e.target.value)addCultureOrd(p.id,e.target.value);}} style={{fontSize:10,maxWidth:90}}><option value="">＋検体</option>{["血液","尿","喀痰","髄液","胸水","腹水"].map(sp=><option key={sp} value={sp}>{sp}</option>)}</select>
                   </div>
                 ) : cat.type === "med" ? (
                   <div style={{display:"flex",gap:2,marginLeft:"auto"}}>
                     <button onClick={() => addRegRx(p.id)}
                       style={{border:"1px solid #E2E8F0",background:"white",borderRadius:4,fontSize:9,padding:"0 4px",cursor:"pointer",color:c.dt,fontWeight:700}}
-                      title={"定期処方（"+(regRxWeekday(p.room)!==null?DOW[regRxWeekday(p.room)]+"曜日":"病棟未対応")+"）"}>+定期</button>
+                      title={"定期処方（"+(regRxWeekday(p.room)!==null?DOW[regRxWeekday(p.room)]+"曜日":"曜日未設定・設定を開く")+"）"}>+定期</button>
                     <button onClick={() => addOrd(p.id, cat.type)} style={{border:"none",background:"transparent",color:c.dt,fontSize:9,cursor:"pointer",padding:"0 2px",fontWeight:700}}>＋</button>
                   </div>
                 ) : (
@@ -1319,26 +1270,26 @@ export default function App() {
           const isNewCul = cat.type === "culture" && it.specimen;
           const isImg = cat.type === "img";
           const specimenLabel = it.specimen || (cat.type === "culture_blood" ? "血液" : cat.type === "culture_urine" ? "尿" : null);
-          const hasGram = specimenLabel === "尿" || specimenLabel === "痰";
+          const hasGram = specimenLabel === "尿" || (specimenLabel === "痰" || specimenLabel === "喀痰");
           rows.push(
             <tr key={p.id+"_ord_"+it.id} style={{background:"#fff"}}>
               <td style={{...stickyTd("#fff"),padding:"1px 2px 1px 30px",borderBottom:"1px solid #F7F1E1",borderRight:"1px solid #E2E8F0",verticalAlign:"middle"}}>
                 <div style={{display:"flex",alignItems:"center",gap:2,flexWrap:"wrap"}}>
                   {isCul ? (
                     <>
-                      <span style={{fontSize:9,fontWeight:700,color:"#475569",flexShrink:0}}>{specimenLabel||"培養"}</span>
+                      <button onClick={()=>setOrderEditor({patient:p,order:it})} style={{fontSize:10,border:0,background:"transparent",fontWeight:700,color:"#475569"}}>{specimenLabel==="痰"?"喀痰":specimenLabel||"培養を選択"}</button>
                       {hasGram && (
                         <input value={it.gramResult||""} onChange={e => updGram(p.id, it.id, e.target.value)}
                           placeholder="G染色…" style={{...ip,fontSize:9,flex:1,width:"auto",minWidth:36,borderBottom:"1px solid #E2E8F0"}}/>
                       )}
-                      {!it.resultDate && <button onClick={() => markCulDone(p.id, it.id)} style={{border:"none",background:"#F8EBC8",color:"#7D6432",borderRadius:2,fontSize:8,fontWeight:700,padding:"0 3px",cursor:"pointer",flexShrink:0}}>未</button>}
-                      {it.resultDate && <span style={{fontSize:8,color:"#7A9968",fontWeight:700,flexShrink:0}}>✓済</span>}
+                      {!(it.dates?.length && it.dates.every(d=>occurrenceDone(it,d))) && <button onClick={() => markCulDone(p.id, it.id)} style={{border:"none",background:"#F8EBC8",color:"#7D6432",borderRadius:2,fontSize:8,fontWeight:700,padding:"0 3px",cursor:"pointer",flexShrink:0}}>未</button>}
+                      {(it.dates?.length && it.dates.every(d=>occurrenceDone(it,d))) && <span style={{fontSize:8,color:"#7A9968",fontWeight:700,flexShrink:0}}>✓済</span>}
                     </>
                   ) : (
-                    <input value={it.name} onChange={e => updNm(p.id, it.id, e.target.value)} placeholder="名称を入力" style={{...ip,fontSize:9,fontWeight:500,flex:1,width:"auto",minWidth:30}}/>
+                    it.type === "abx" ? <button onClick={()=>setOrderEditor({patient:p,order:it})} style={{fontSize:12,minHeight:36,border:"1px solid #CBD5E1",borderRadius:6,background:"white"}}>{it.name||"抗菌薬を選択"}・用量</button> : <input value={it.name} onChange={e => updNm(p.id, it.id, e.target.value)} placeholder="名称を入力" style={{...ip,fontSize:9,fontWeight:500,flex:1,width:"auto",minWidth:30}}/>
                   )}
-                  {isImg && !it.reportConfirmed && <button onClick={() => markImgDone(p.id, it.id)} style={{border:"none",background:"#E5EDF4",color:"#2D4759",borderRadius:2,fontSize:8,fontWeight:700,padding:"0 3px",cursor:"pointer"}}>レポ未</button>}
-                  {isImg && it.reportConfirmed && <span style={{fontSize:8,color:"#7A9968",fontWeight:700}}>✓済</span>}
+                  {isImg && !(it.dates?.length && it.dates.every(d=>occurrenceDone(it,d))) && <button onClick={() => markImgDone(p.id, it.id)} style={{border:"none",background:"#E5EDF4",color:"#2D4759",borderRadius:2,fontSize:8,fontWeight:700,padding:"0 3px",cursor:"pointer"}}>レポ未</button>}
+                  {isImg && (it.dates?.length && it.dates.every(d=>occurrenceDone(it,d))) && <span style={{fontSize:8,color:"#7A9968",fontWeight:700}}>✓済</span>}
                   {it.regWeekday != null && <span style={{fontSize:8,color:"#5C7A93",fontWeight:700,flexShrink:0,padding:"0 3px"}}>{DOW[it.regWeekday]}曜</span>}
                   <button onClick={() => rmOrd(p.id, it.id)} style={{border:"none",background:"transparent",color:"#D1D5DB",cursor:"pointer",fontSize:9,padding:0}}>✕</button>
                 </div>
@@ -1407,17 +1358,15 @@ export default function App() {
                       );
                     })() : (() => {
                       const hd2 = it.dates?.includes(ds);
-                      let cd = null;
-                      if (cat.showDay && it.dates?.[0]) {
-                        const a = pMD(it.dates[0]), r = it.resultDate ? pMD(it.resultDate) : null, td = pMD(ds);
-                        if (a && td && td >= a && (!r || td <= r)) cd = dB(it.dates[0], ds);
-                      }
-                      const isR = it.resultDate === ds;
-                      const imgOk = cat.type === "img" && it.reportConfirmed;
+                      const waiting=(it.dates||[]).filter(date=>date<=ds&&!occurrenceDone(it,date)).sort().at(-1);
+                      const cd=cat.showDay&&waiting?dB(waiting,ds):null;
+                      const isR=occurrenceDone(it,ds)&&it.dates?.includes(ds);
+                      const imageStatus=imageCellStatus(it,ds,tdL());
+                      const imgOk = ['img','culture'].includes(cat.type) && isR;
                       return (
-                        <div onClick={() => togDot(p.id, it.id, ds, isCul)}
+                        <div onClick={() => cat.type==="img"&&hd2?setOrderEditor({patient:p,order:it}):togDot(p.id, it.id, ds, isCul)}
                           style={{cursor:"pointer",height:18,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                          {hd2 ? <div style={{width:12,height:12,borderRadius:"50%",background:imgOk?"#7A9968":c.dt,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                          {imageStatus==="pending" ? <span style={{fontSize:9,color:"#895329",background:"#ffe4a6",outline:"2px solid #d7a043",padding:"2px 4px",borderRadius:4}}>未確認</span> : hd2 ? <div style={{width:12,height:12,borderRadius:"50%",background:imgOk?"#7A9968":c.dt,display:"flex",alignItems:"center",justifyContent:"center"}}>
                                   {cd && <span style={{fontSize:5,color:"white",fontWeight:800}}>{cd}</span>}
                                   {imgOk && <span style={{fontSize:5,color:"white",fontWeight:800}}>✓</span>}
                                 </div>
@@ -1448,7 +1397,7 @@ export default function App() {
                 {R_LABS.map(lb => {
                   const v = rl[lb.id] || {done:false,value:""};
                   const num = parseFloat(v.value);
-                  const isAbn = !isNaN(num) && lb.ab && lb.ab(num);
+                  const isAbn = false; // Institution-specific ranges and units are not assumed.
                   return (
                     <div key={lb.id} style={{display:"flex",alignItems:"center",gap:2,padding:"1px 3px",borderRadius:3,background:"white",border:"1px solid #E2E8F0"}}>
                       <div onClick={() => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],[lb.id]:{...v,done:!v.done}}}))} style={ck(v.done,c.dt,9)}>{v.done && <Tk s={4}/>}</div>
@@ -1458,25 +1407,8 @@ export default function App() {
                     </div>
                   );
                 })}
-                {/* TSAT: Fe + TIBC → TSAT (異常値=18以下で赤) */}
-                <div style={{display:"flex",alignItems:"center",gap:2,padding:"1px 3px",borderRadius:3,background:"white",border:"1px solid #E2E8F0"}}>
-                  <span style={{fontSize:9,color:"#64748B",fontWeight:600}}>Fe</span>
-                  <input value={rl.fe?.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],fe:{...(pr[p.id]?.fe||{}),value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:9,width:24,textAlign:"center"}}/>
-                  <span style={{fontSize:9,color:"#64748B",fontWeight:600}}>TIBC</span>
-                  <input value={rl.tibc?.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],tibc:{...(pr[p.id]?.tibc||{}),value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:9,width:28,textAlign:"center"}}/>
-                  <span style={{fontSize:9,color:"#64748B",fontWeight:600}}>→TSAT</span>
-                  <b style={{fontSize:9,color:tsat!=null && tsat<=18?"#A6553D":"#334155"}}>{tsat!=null?tsat+"%":"—"}</b>
-                </div>
-                {/* RPI: 網赤+Hct → RPI (異常値<2で赤) */}
-                <div style={{display:"flex",alignItems:"center",gap:2,padding:"1px 3px",borderRadius:3,background:"white",border:"1px solid #E2E8F0"}}
-                  title="網赤血球は%/‰両表記あり、自施設で確認">
-                  <span style={{fontSize:9,color:"#64748B",fontWeight:600}}>網赤%</span>
-                  <input value={rl.retic?.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],retic:{...(pr[p.id]?.retic||{}),value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:9,width:28,textAlign:"center"}}/>
-                  <span style={{fontSize:9,color:"#64748B",fontWeight:600}}>Hct</span>
-                  <input value={rl.hct?.value||""} onChange={e => setRLabs(pr => ({...pr,[p.id]:{...pr[p.id],hct:{...(pr[p.id]?.hct||{}),value:e.target.value}}}))} placeholder="—" style={{...ip,fontSize:9,width:24,textAlign:"center"}}/>
-                  <span style={{fontSize:9,color:"#64748B",fontWeight:600}}>→RPI</span>
-                  <b style={{fontSize:9,color:rpi!=null && rpi<2?"#A6553D":"#334155"}}>{rpi!=null?rpi:"—"}</b>
-                </div>
+                <LabCalculator value={rl} onChange={value=>setRLabs(prev=>({...prev,[p.id]:value}))}/>
+
               </div>
             )}
           </td>
@@ -1488,12 +1420,15 @@ export default function App() {
 
   // Mobile vitals toggle helpers
   const vStatus = pid => (curVitals[pid]||{}).status || null;
-  const setVStatus = (pid, st) => setVitals(pr => ({...pr, [pid]: {...(pr[pid]||{}), status: st === vStatus(pid) ? null : st, memo: st === "flag" ? (pr[pid]?.memo||"") : ""}}));
+  const setVStatus = (pid, st) => setVitals(pr => ({...pr, [pid]: {...(pr[pid]||{}), status: st === vStatus(pid) ? null : st, memo: pr[pid]?.memo||""}}));
 
   return (
     <div style={{width:"100%",flex:1,display:"flex",flexDirection:"column",fontFamily:"'M PLUS Rounded 1c','Hiragino Sans',sans-serif",background:"#F7F1E1",color:"#2D2A24",minHeight:0}}>
+      {otherTab && !backupModal && <div className="modal-shade" style={{zIndex:2000}}><section className="ward-dialog" role="alertdialog" aria-label="別タブで更新されました"><h2>別タブでデータが更新されました</h2><p>上書きを防ぐため、この画面からの保存を止めています。再読み込みすると更新を取り込めます。</p><footer><button onClick={()=>setBackupModal(true)}>この画面の内容を書き出す</button><button onClick={()=>location.reload()}>再読み込み</button></footer></section></div>}
+      {storageError && <div role="alert" className="notice">{storageError}<button onClick={() => setBackupModal(true)}>バックアップ</button></div>}
+      {undoAction && <div role="status" className="undo-notice">{undoAction.label}<button onClick={() => { undoAction.run(); setUndoAction(null); }}>元に戻す</button><button onClick={() => setUndoAction(null)}>閉じる</button></div>}
       {/* Header */}
-      <header style={{display:"flex",alignItems:"center",gap:10,padding:"0 14px",height:48,background:"white",borderBottom:"1px solid #E2E8F0",flexShrink:0}}>
+      <header className="app-header" style={{display:"flex",alignItems:"center",gap:10,padding:"0 14px",minHeight:56,flexWrap:"wrap",paddingTop:6,paddingBottom:6,background:"white",borderBottom:"1px solid #E2E8F0",flexShrink:0}}>
         <span style={{fontSize:18,width:30,height:30,borderRadius:8,background:"linear-gradient(135deg,#5C7A93,#3D5C7A)",display:"flex",alignItems:"center",justifyContent:"center",color:"white",flexShrink:0}}>🏥</span>
         <div style={{fontSize:15,fontWeight:800,flexShrink:0}}>病棟管理</div>
         <div style={{flex:1}}/>
@@ -1514,11 +1449,26 @@ export default function App() {
             </div>
           )}
         </div>
+        <button onClick={() => setSettingsModal(true)} style={{minHeight:44,padding:"8px 12px",border:"1px solid #E2E8F0",borderRadius:12,background:"#FBF8F0",fontSize:14,cursor:"pointer",flexShrink:0}}>定期処方</button>
         <button onClick={() => setHandoffModal(true)} title="申し送り作成" style={{border:"1px solid #E2E8F0",background:"#FBF8F0",borderRadius:20,padding:"6px 10px",fontSize:14,cursor:"pointer",flexShrink:0,marginRight:6}}>📋</button>
         <button onClick={() => setBackupModal(true)} title="バックアップ" style={{border:"1px solid #E2E8F0",background:"#FBF8F0",borderRadius:20,padding:"6px 10px",fontSize:14,cursor:"pointer",flexShrink:0,marginRight:6}}>💾</button>
         <button onClick={() => setPatModal({})} style={{border:"none",background:"#5C7A93",borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:700,color:"white",cursor:"pointer",flexShrink:0}}>＋患者</button>
       </header>
 
+      <div style={{display:"flex",flexWrap:"wrap",gap:10,padding:"10px 14px",background:"white",borderBottom:"1px solid #E2E8F0",flexShrink:0}}>
+        <label style={{flex:"1 1 100px",fontSize:12}}>階で絞る
+          <select aria-label="階で絞る" value={floorFilter} onChange={e => setFloorFilter(e.target.value)} style={{display:"block",width:"100%",minHeight:44,fontSize:16,borderRadius:8,border:"1px solid #CBD5E1",background:"white"}}>
+            <option value="all">すべての階</option>{floors.map(f => <option key={f} value={f}>{f === "other" ? "その他" : f+"階"}</option>)}
+          </select>
+        </label>
+        <label style={{flex:"2 1 190px",fontSize:12}}>患者の並び順
+          <select aria-label="患者の並び順" value={patientSort} onChange={e => setPatientSort(e.target.value)} style={{display:"block",width:"100%",minHeight:44,fontSize:16,borderRadius:8,border:"1px solid #CBD5E1",background:"white"}}>
+            <option value="ward">病棟順</option><option value="urgency">緊急度が高い順</option><option value="admission">入院日が新しい順</option>
+          </select>
+        </label>
+        <div role="status" style={{width:"100%",fontSize:12,color:"#64748B"}}>表示 {filteredPats.length}人 / 全{patients.length}人{patientSort === "urgency" ? " ・自分で指定した緊急度順（未設定は最後）" : ""}{floorFilter !== "all" || filterDoctor !== "all" ? " ・絞り込み中" : ""}</div>
+        {filteredPats.length === 0 && patients.length > 0 && <button onClick={() => {setFloorFilter("all");setFilterDoctor("all");}} style={{minHeight:44,fontSize:14}}>絞り込みを解除</button>}
+      </div>
       {/* Tab bar (desktop only) */}
       {!isMobile && <div style={{display:"flex",background:"white",borderBottom:"2px solid #E2E8F0",flexShrink:0}}>
         {[["schedule","board","予定表"],["todo","check","今日"]].map(([v,kind,l]) => (
@@ -1540,34 +1490,10 @@ export default function App() {
             <div style={{flex:1,overflow:"auto"}}>
 
               {/* Tab: 予定表 */}
-              {mobileTab === "schedule" && (
-                <div style={{background:"white",height:"100%",display:"flex",flexDirection:"column"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:6,padding:"8px 10px",borderBottom:"1px solid #E5E7EB",flexShrink:0}}>
-                    <button onClick={() => { const d=new Date(selDate); d.setDate(d.getDate()-7); setSelDate(d); }} style={{border:"1px solid #E2E8F0",background:"white",borderRadius:6,width:30,height:30,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>◀</button>
-                    <div style={{flex:1,textAlign:"center"}}>
-                      <div style={{fontSize:12,fontWeight:700}}>📋 週間予定表</div>
-                      <div style={{fontSize:10,color:"#94A3B8"}}>{fD(wk[0])}〜{fD(wk[6])}</div>
-                    </div>
-                    <button onClick={() => { const d=new Date(selDate); d.setDate(d.getDate()+7); setSelDate(d); }} style={{border:"1px solid #E2E8F0",background:"white",borderRadius:6,width:30,height:30,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>▶</button>
-                  </div>
-                  <div style={{flex:1,overflow:"auto",WebkitOverflowScrolling:"touch"}}>
-                    <table style={{minWidth:480,width:"100%",borderCollapse:"collapse",tableLayout:"fixed"}}>
-                      <colgroup><col style={{width:120,minWidth:100}}/>{wk.map((_,i) => <col key={i}/>)}</colgroup>
-                      <thead><tr>
-                        <th style={{position:"sticky",top:0,left:0,zIndex:6,padding:"5px 4px",background:"#FBF8F0",borderBottom:"2px solid #E2E8F0",fontSize:9,color:"#64748B",fontWeight:600,textAlign:"left"}}>患者/オーダー</th>
-                        {wk.map((d, i) => { const t = isTd(d); return (
-                          <th key={i} onClick={() => { setSelDate(d); setMobileTab("todo"); }}
-                            style={{position:"sticky",top:0,zIndex:5,padding:"3px 2px",background:t?"#F0F4F9":"#FBF8F0",borderBottom:t?"2px solid #5C7A93":"2px solid #E2E8F0",cursor:"pointer",textAlign:"center"}}>
-                            <div style={{fontSize:8,color:t?"#5C7A93":"#94A3B8",fontWeight:600}}>{DOW[d.getDay()]}</div>
-                            <div style={{fontSize:13,fontWeight:700,color:t?"#5C7A93":"#475569"}}>{d.getDate()}</div>
-                          </th>
-                        ); })}
-                      </tr></thead>
-                      <tbody>{filteredPats.map(p => renderGanttPatient(p))}</tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
+              {mobileTab === "schedule" && <ScheduleAgenda onDateCell={(patient,order,date,range)=>editScheduleDate(patient.id,order.id,date,range)} onHiddenCategories={(pid,hiddenScheduleTypes)=>setPatients(prev=>prev.map(p=>p.id===pid?{...p,hiddenScheduleTypes}:p))} categories={patCats} patients={filteredPats} orders={orders} date={selDate} onDate={setSelDate}
+                onEditPatient={p=>setPatModal({edit:p})} onEditOrder={(patient,order)=>setOrderEditor({patient,order})}
+                onAddOrder={(patient,type="abx")=>setOrderEditor({patient,order:{id:Date.now(),type,name:"",dates:[]},isNew:true})}
+                labFields={R_LABS} onChecklist={(patient,prefix)=>setChecklistEditor({patient,prefix})} labs={rLabs} onLabs={(pid,value)=>setRLabs(prev=>({...prev,[pid]:value}))} onDischarge={dischargePat} onRegular={addRegRx}/>}
 
               {/* Tab: 今日のTODO (mobile patient cards) */}
               {mobileTab === "todo" && (
@@ -1643,9 +1569,9 @@ export default function App() {
                     const stickyL = {position:"sticky",left:0,zIndex:2,background:"white"};
                     const cellSt = () => ({padding:"4px 6px",borderBottom:"1px solid #F7F1E1",borderLeft:"1px solid #E2E8F0",verticalAlign:"top",minWidth:colW,maxWidth:colW});
                     const TaskCell = ({taskKey, pid, pfx, slot}) => {
-                      const cell = amC[taskKey] || pmC[taskKey] || emptyCell();
+                      const raw = amC[taskKey] || pmC[taskKey]; const cell=raw?.suppressed?emptyCell():raw||emptyCell();
                       const c = COL[filteredPats.find(p=>p.id===pid)?.color||"blue"];
-                      const maxSlot = pfx === "am" ? AM - 1 : PM_R - 1;
+                      const maxSlot = pfx === "am" ? amLimit - 1 : pmLimit - 1;
                       if (!cell.presetId) return (
                         <div onClick={() => setSummaryAddMenu(prev => prev?.taskKey===taskKey ? null : {taskKey, pid, pfx, slot})}
                           style={{minHeight:20,display:"flex",alignItems:"center",cursor:"pointer",padding:"2px 0"}}>
@@ -1696,7 +1622,7 @@ export default function App() {
                             </thead>
                             <tbody>
                               {/* AM rows */}
-                              {Array.from({length:AM},(_,ri) => (
+                              {Array.from({length:amLimit},(_,ri) => (
                                 <tr key={"am"+ri} style={{background:ri%2===0?"white":"#FBF8F0"}}>
                                   {ri===0 && (
                                     <td rowSpan={AM} style={{...stickyL,width:36,textAlign:"center",fontWeight:800,fontSize:11,color:"#3D5C7A",
@@ -1722,7 +1648,7 @@ export default function App() {
                                 </tr>
                               ))}
                               {/* PM rows */}
-                              {Array.from({length:PM_R},(_,ri) => (
+                              {Array.from({length:pmLimit},(_,ri) => (
                                 <tr key={"pm"+ri} style={{background:ri%2===0?"#FAF1D8":"#F8E5D5"}}>
                                   {ri===0 && (
                                     <td rowSpan={PM_R} style={{...stickyL,width:36,textAlign:"center",fontWeight:800,fontSize:11,color:"#8C4830",
@@ -1802,11 +1728,14 @@ export default function App() {
                     const c = COL[p.color];
                     const v = curVitals[p.id] || {status:null,memo:""};
                     const k = curKarte[p.id] || {checked:false,memo:""};
-                    const amTasks = Array.from({length:AM}, (_,ri) => ({key:"am"+ri+"_"+p.id, cell:amC["am"+ri+"_"+p.id]||emptyCell(), slot:ri})).filter(x => x.cell.presetId);
-                    const pmTasks = Array.from({length:PM_R}, (_,ri) => ({key:"pm"+ri+"_"+p.id, cell:pmC["pm"+ri+"_"+p.id]||emptyCell(), slot:ri})).filter(x => x.cell.presetId);
+                    const amTasks = Array.from({length:amLimit}, (_,ri) => ({key:"am"+ri+"_"+p.id, cell:amC["am"+ri+"_"+p.id]||emptyCell(), slot:ri})).filter(x => x.cell.presetId && !x.cell.suppressed);
+                    const pmTasks = Array.from({length:pmLimit}, (_,ri) => ({key:"pm"+ri+"_"+p.id, cell:pmC["pm"+ri+"_"+p.id]||emptyCell(), slot:ri})).filter(x => x.cell.presetId && !x.cell.suppressed);
                     const os = orderStatus[p.id] || {med:{level:"none"},drip:{level:"none"},lab:{level:"none"}};
                     const pc = pendingConfirms[p.id]||[];
-                    const dayNum = p.admissionDate ? dB(p.admissionDate, selDateStr) : null;
+                    const admitted = admissionTime(p);
+                    const dayNum = admitted === null ? null : Math.floor((new Date(selDate.getFullYear(),selDate.getMonth(),selDate.getDate()).getTime() - admitted) / 86400000) + 1;
+                    const enteredCCr = manualCCr(p.ccrManual);
+                    const cardCCr = enteredCCr ?? patientCCr(p).value;
                     return (
                       <div key={p.id} id={"pat-card-"+p.id} style={{background:"white",borderRadius:14,marginBottom:12,border:"2px solid "+c.bd,overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
                         {/* Card header */}
@@ -1824,6 +1753,12 @@ export default function App() {
                             style={{border:"none",background:"rgba(255,255,255,0.2)",color:"white",borderRadius:6,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0,marginLeft:8}}>{p.plannedDischargeDate?"予定変更":"退院"}</button>
                         </div>
 
+                        <div style={{padding:"10px 14px",fontSize:14,borderBottom:"1px solid #E2E8F0"}}>
+
+                          <div style={{marginTop:6}}>緊急度：{URGENCY_LABELS[p.urgency] || "未設定"}</div>
+                          <button onClick={() => setPatModal({edit:p})} style={{marginTop:8,minHeight:44,padding:"8px 12px",fontSize:14,border:"1px solid #CBD5E1",borderRadius:8,background:"white"}}>患者情報・緊急度を編集</button>
+                        </div>
+                        <div className="agenda-actions" style={{padding:"0 14px 10px"}}><button onClick={()=>setChecklistEditor({patient:p,prefix:'a'})}>入院TODO</button><button onClick={()=>setChecklistEditor({patient:p,prefix:'d'})}>退院TODO</button></div>
                         {/* Vitals */}
                         <div style={{padding:"10px 14px",borderBottom:"1px solid #F7F1E1"}}>
                           <div style={{fontSize:11,fontWeight:700,color:"#64748B",marginBottom:6}}>♡ バイタル</div>
@@ -1965,7 +1900,7 @@ export default function App() {
                               <div style={{display:"flex",alignItems:"center",gap:8,opacity:cell.checked?0.45:1}}>
                                 <div {...dragHandlers("am",slot,p.id,true)}
                                   style={{cursor:"grab",color:"#94A3B8",fontSize:20,lineHeight:1,flexShrink:0,padding:"8px 8px",userSelect:"none",touchAction:"none",borderRadius:6,background:"#FBF8F0",minWidth:32,minHeight:32,display:"flex",alignItems:"center",justifyContent:"center"}}>⠿</div>
-                                <div onClick={() => compT(key)} style={ck(cell.checked,c.dt,22)}>{cell.checked && <Tk s={13}/>}</div>
+                                <button aria-label={`${cell.label||cell.text||"タスク"}の完了`} aria-pressed={cell.checked} onClick={() => compT(key)} style={ck(cell.checked,c.dt,22)}>{cell.checked && <Tk s={13}/>}</button>
                                 {cell.type === "free"
                                   ? <input value={cell.text||""} onChange={e => setAmC(prev => ({...prev,[key]:{...prev[key]||emptyCell(),text:e.target.value}}))}
                                       placeholder="メモ..." style={{fontSize:14,flex:1,border:"none",outline:"none",background:"transparent",fontFamily:"inherit",textDecoration:cell.checked?"line-through":"none"}}/>
@@ -1983,7 +1918,7 @@ export default function App() {
                                     {expLabMobile[key] ? "▲" : "詳細"}
                                   </button>
                                 )}
-                                <button onClick={() => setAmC(prev => ({...prev,[key]:emptyCell()}))} style={{border:"none",background:"transparent",color:"#CBD5E1",fontSize:16,cursor:"pointer",padding:"0 4px"}}>✕</button>
+                                <button onClick={() => removeTask(p.id,key,cell)} style={{border:"none",background:"transparent",color:"#CBD5E1",fontSize:16,cursor:"pointer",padding:"0 4px"}}>✕</button>
                               </div>
                               {cell.type === "lab" && expLabMobile[key] && (
                                 <div style={{marginTop:6,paddingLeft:32}}>
@@ -2002,7 +1937,7 @@ export default function App() {
                               )}
                             </div>
                           ))}
-                          {amTasks.length < AM && (
+                          {amTasks.length < amLimit && (
                             <div>
                               <button onClick={() => setShowAddAM(prev => ({...prev,[p.id]:!prev[p.id]}))}
                                 style={{border:"1px dashed #CBD5E1",background:"transparent",borderRadius:16,padding:"4px 12px",fontSize:12,color:"#94A3B8",cursor:"pointer",marginTop:2}}>
@@ -2012,7 +1947,7 @@ export default function App() {
                                 <div style={{marginTop:4}}>
                                   {PRESETS.map((pr2) => (
                                     <button key={pr2.id} onClick={() => {
-                                      const slot = Array.from({length:AM},(_,ri)=>ri).find(ri => !(amC["am"+ri+"_"+p.id]||{}).presetId);
+                                      const slot = Array.from({length:amLimit},(_,ri)=>ri).find(ri => !(amC["am"+ri+"_"+p.id]||{}).presetId);
                                       if (slot == null) return;
                                       const key2 = "am"+slot+"_"+p.id;
                                       const newCell = {...emptyCell(),presetId:pr2.id,icon:pr2.icon,label:pr2.label,type:pr2.type};
@@ -2039,7 +1974,7 @@ export default function App() {
                               <div style={{display:"flex",alignItems:"center",gap:8,opacity:cell.checked?0.45:1}}>
                                 <div {...dragHandlers("pm",slot,p.id,true)}
                                   style={{cursor:"grab",color:"#94A3B8",fontSize:20,lineHeight:1,flexShrink:0,padding:"8px 8px",userSelect:"none",touchAction:"none",borderRadius:6,background:"#FBF8F0",minWidth:32,minHeight:32,display:"flex",alignItems:"center",justifyContent:"center"}}>⠿</div>
-                                <div onClick={() => compT(key)} style={ck(cell.checked,c.dt,22)}>{cell.checked && <Tk s={13}/>}</div>
+                                <button aria-label={`${cell.label||cell.text||"タスク"}の完了`} aria-pressed={cell.checked} onClick={() => compT(key)} style={ck(cell.checked,c.dt,22)}>{cell.checked && <Tk s={13}/>}</button>
                                 {cell.type === "free"
                                   ? <input value={cell.text||""} onChange={e => setPmC(prev => ({...prev,[key]:{...prev[key]||emptyCell(),text:e.target.value}}))}
                                       placeholder="メモ..." style={{fontSize:14,flex:1,border:"none",outline:"none",background:"transparent",fontFamily:"inherit",textDecoration:cell.checked?"line-through":"none"}}/>
@@ -2057,7 +1992,7 @@ export default function App() {
                                     {expLabMobile[key] ? "▲" : "詳細"}
                                   </button>
                                 )}
-                                <button onClick={() => setPmC(prev => ({...prev,[key]:emptyCell()}))} style={{border:"none",background:"transparent",color:"#CBD5E1",fontSize:16,cursor:"pointer",padding:"0 4px"}}>✕</button>
+                                <button onClick={() => removeTask(p.id,key,cell)} style={{border:"none",background:"transparent",color:"#CBD5E1",fontSize:16,cursor:"pointer",padding:"0 4px"}}>✕</button>
                               </div>
                               {cell.type === "lab" && expLabMobile[key] && (
                                 <div style={{marginTop:6,paddingLeft:32}}>
@@ -2076,7 +2011,7 @@ export default function App() {
                               )}
                             </div>
                           ))}
-                          {pmTasks.length < PM_R && (
+                          {pmTasks.length < pmLimit && (
                             <div>
                               <button onClick={() => setShowAddPM(prev => ({...prev,[p.id]:!prev[p.id]}))}
                                 style={{border:"1px dashed #CBD5E1",background:"transparent",borderRadius:16,padding:"4px 12px",fontSize:12,color:"#94A3B8",cursor:"pointer",marginTop:2}}>
@@ -2085,11 +2020,12 @@ export default function App() {
                               {showAddPM[p.id] && <div style={{marginTop:4}}>
                               {PRESETS.map((pr2) => (
                                 <button key={pr2.id} onClick={() => {
-                                  const slot = Array.from({length:PM_R},(_,ri)=>ri).find(ri => !(pmC["pm"+ri+"_"+p.id]||{}).presetId);
+                                  const slot = Array.from({length:pmLimit},(_,ri)=>ri).find(ri => !(pmC["pm"+ri+"_"+p.id]||{}).presetId);
                                   if (slot == null) return;
                                   const key2 = "pm"+slot+"_"+p.id;
                                   const newCell = {...emptyCell(),presetId:pr2.id,icon:pr2.icon,label:pr2.label,type:pr2.type};
                                   setPmC(prev => ({...prev,[key2]:newCell}));
+                                  syncTaskToOrder(p.id, newCell, emptyCell());
                                   setShowAddPM(prev => ({...prev,[p.id]:false}));
                                 }} style={{display:"inline-flex",alignItems:"center",gap:4,margin:"2px",padding:"5px 10px",borderRadius:16,border:"1px solid #E2E8F0",background:"#FBF8F0",fontSize:12,color:"#475569",cursor:"pointer"}}>
                                   {pr2.icon} {pr2.label}
@@ -2105,11 +2041,11 @@ export default function App() {
                           <div style={{padding:"8px 14px",borderBottom:"1px solid #F7F1E1",background:"#F8E5D5"}}>
                             <div style={{fontSize:11,fontWeight:700,color:"#8C4830",marginBottom:4}}>🔍 結果確認</div>
                             {pc.map(cu => (
-                              <div key={cu.orderId} style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                              <div key={cu.orderId+"_"+cu.occurrenceDate} style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
                                 <span style={{fontSize:14}}>{cu.icon}</span>
-                                <span style={{fontSize:13,fontWeight:600,color:"#8C4830",flex:1}}>{cu.name}{cu.day?" Day"+cu.day:""}</span>
+                                <span style={{fontSize:13,fontWeight:600,color:"#8C4830",flex:1}}>{cu.name}{cu.type==="img"?" レポート未確認":cu.day?" "+cu.day+"日目":""}</span>
                                 <button onClick={() => cu.type==="culture"?markCulDone(p.id,cu.orderId):markImgDone(p.id,cu.orderId)}
-                                  style={{border:"1px solid #7A9968",background:"#F0F5E8",borderRadius:6,fontSize:12,color:"#4A6336",fontWeight:700,cursor:"pointer",padding:"4px 10px"}}>済み</button>
+                                  style={{border:"1px solid #7A9968",background:"#F0F5E8",borderRadius:6,fontSize:12,color:"#4A6336",fontWeight:700,cursor:"pointer",padding:"4px 10px"}}>結果確認</button>
                               </div>
                             ))}
                           </div>
@@ -2231,7 +2167,7 @@ export default function App() {
                               style={{width:"100%",fontSize:13,border:"1px solid #E2E8F0",borderRadius:5,padding:"6px 8px",resize:"vertical",fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
                           </div>
                         ))}
-                        <datalist id="ward-list">{WARDS.map(w => <option key={w} value={w}/>)}</datalist>
+                        <datalist id="ward-list">{wardNames.map(w => <option key={w} value={w}/>)}</datalist>
                         <datalist id="duty-doctor-list">{doctors.map(d => <option key={d} value={d}/>)}</datalist>
                       </div>
                     );
@@ -2308,7 +2244,7 @@ export default function App() {
             <h2 style={{margin:0,fontSize:13,fontWeight:700}}>📋 週間予定表</h2>
             <div style={{display:"flex",alignItems:"center",gap:4,marginLeft:"auto"}}>
               <button onClick={() => { const d=new Date(selDate); d.setDate(d.getDate()-7); setSelDate(d); }} style={{border:"1px solid #E2E8F0",background:"white",borderRadius:4,width:24,height:24,cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center"}}>◀</button>
-              <span style={{fontSize:10,color:"#64748B",fontWeight:600}}>{fD(wk[0])}〜{fD(wk[6])}</span>
+              <span style={{fontSize:10,color:"#64748B",fontWeight:600}}>{shortDate(wk[0])}〜{shortDate(wk[6])}</span>
               <button onClick={() => { const d=new Date(selDate); d.setDate(d.getDate()+7); setSelDate(d); }} style={{border:"1px solid #E2E8F0",background:"white",borderRadius:4,width:24,height:24,cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center"}}>▶</button>
               <button onClick={() => setSelDate(new Date())} style={{border:"1px solid #E2E8F0",background:"white",borderRadius:4,padding:"2px 6px",fontSize:9,color:"#64748B",cursor:"pointer"}}>今週</button>
             </div>
@@ -2398,7 +2334,8 @@ export default function App() {
                 ); })}
               </tr></thead>
               <tbody>
-                {/* Vitals */}
+                <div className="agenda-actions" style={{padding:"0 14px 10px"}}><button onClick={()=>setChecklistEditor({patient:p,prefix:'a'})}>入院TODO</button><button onClick={()=>setChecklistEditor({patient:p,prefix:'d'})}>退院TODO</button></div>
+                        {/* Vitals */}
                 <tr style={{background:"#FFFDF7"}}>
                   <td style={{padding:"3px 2px",textAlign:"center",borderBottom:"2px solid #E8C97A",borderRight:"1px solid #E2E8F0",background:"#FAF1D8"}}><span style={{fontSize:11}}>♡</span></td>
                   {filteredPats.map(p => { const cl = COL[p.color]; const v = curVitals[p.id]||{status:null,memo:""}; return (
@@ -2417,11 +2354,11 @@ export default function App() {
                     </td>
                   ); })}
                 </tr>
-                {tdRows("am", "#5C7A93", amC, setAmC, AM)}
-                {tdRows("pm", "#8E76B0", pmC, setPmC, PM_R)}
+                {tdRows("am", "#5C7A93", amC, setAmC, amLimit)}
+                {tdRows("pm", "#8E76B0", pmC, setPmC, pmLimit)}
 
                 {/* Pending culture/image */}
-                {sortedPats.some(p => (pendingConfirms[p.id]||[]).length > 0) && (
+                {filteredPats.some(p => (pendingConfirms[p.id]||[]).length > 0) && (
                   <tr style={{background:"#F8E5D5"}}>
                     <td style={{padding:"2px",textAlign:"center",borderTop:"1px solid #F0BFA8",borderBottom:"1px solid #F0BFA8",borderRight:"1px solid #E2E8F0",background:"#F8E5D5"}}><span style={{fontSize:9}}>🔍</span></td>
                     {filteredPats.map(p => {
@@ -2429,11 +2366,11 @@ export default function App() {
                       return (
                         <td key={p.id} style={{padding:"2px 3px",borderTop:"1px solid #F0BFA8",borderBottom:"1px solid #F0BFA8",borderLeft:"1px solid #F7F1E1",verticalAlign:"top",fontSize:8}}>
                           {pc.length === 0 ? <span style={{color:"#E2E8F0"}}>—</span> : pc.map(cu => (
-                            <div key={cu.orderId} style={{display:"flex",alignItems:"center",gap:2,marginBottom:1}}>
+                            <div key={cu.orderId+"_"+cu.occurrenceDate} style={{display:"flex",alignItems:"center",gap:2,marginBottom:1}}>
                               <span style={{fontSize:9}}>{cu.icon}</span>
-                              <span style={{fontWeight:600,color:"#8C4830",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cu.name}{cu.day?" Day"+cu.day:""}</span>
+                              <span style={{fontWeight:600,color:"#8C4830",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cu.name}{cu.type==="img"?" レポート未確認":cu.day?" "+cu.day+"日目":""}</span>
                               <button onClick={() => cu.type==="culture"?markCulDone(p.id,cu.orderId):markImgDone(p.id,cu.orderId)}
-                                style={{border:"1px solid #7A9968",background:"#F0F5E8",borderRadius:3,fontSize:8,color:"#4A6336",fontWeight:700,cursor:"pointer",padding:"0 3px"}}>済み</button>
+                                style={{border:"1px solid #7A9968",background:"#F0F5E8",borderRadius:3,fontSize:8,color:"#4A6336",fontWeight:700,cursor:"pointer",padding:"0 3px"}}>結果確認</button>
                             </div>
                           ))}
                         </td>
@@ -2449,7 +2386,7 @@ export default function App() {
                     const po = orders[p.id]||[], sd = pMD(selDateStr);
                     const os = orderStatus[p.id] || {};
                     const onToday = o => o.dates?.some(d => d === selDateStr);
-                    const notExpAbx = o => { if (!o.endDate) return true; const ed = pMD(o.endDate); return ed && sd && ed >= sd; };
+                    const notExpAbx = o => { if(o.startDate&&pMD(o.startDate)>sd)return false; if (!o.endDate) return true; const ed = pMD(o.endDate); return ed && sd && ed >= sd; };
                     const drips = po.filter(o => o.type === "drip_main" && o.name && onToday(o));
                     const meds = po.filter(o => o.type === "med" && o.name && onToday(o));
                     const abxs = po.filter(o => o.type === "abx" && o.name && notExpAbx(o));
@@ -2613,21 +2550,29 @@ export default function App() {
         </>}
       </div>
       {/* Modals */}
-      {patModal !== null && <PatientModal edit={patModal.edit} onSave={addOrUpdatePat} onDelete={deletePat} onClose={() => setPatModal(null)} doctors={doctors} usedColors={patients.map(p=>p.color)}/>}
+      {categoryVisibility&&<div className="modal-shade"><section className="ward-dialog" role="dialog" aria-modal="true" aria-label="表示項目"><h2>週間表の表示項目</h2><p className="muted">非表示にしても、予定と「今日」の通知は残ります。</p>{groupSchedule(orders[categoryVisibility]||[],patCats[categoryVisibility]).map(cat=><label key={cat.type} style={{display:'flex',alignItems:'center',gap:12,minHeight:44}}><input type="checkbox" style={{width:24,minHeight:24}} checked={!(patients.find(p=>p.id===categoryVisibility)?.hiddenScheduleTypes||[]).includes(cat.type)} onChange={e=>{const visible=e.target.checked;setPatients(prev=>prev.map(p=>p.id===categoryVisibility?{...p,hiddenScheduleTypes:visible?(p.hiddenScheduleTypes||[]).filter(t=>t!==cat.type):[...(p.hiddenScheduleTypes||[]),cat.type]}:p));}}/>{cat.icon} {cat.label}（{cat.items.length}件）</label>)}<footer><button onClick={()=>setCategoryVisibility(null)}>閉じる</button></footer></section></div>}
+      {checklistEditor && <ChecklistModal patient={checklistEditor.patient} prefix={checklistEditor.prefix} title={checklistEditor.prefix==='a'?'入院チェック':'退院チェック'} items={checklistEditor.prefix==='a'?ADMIT_CL:DISCH_CL} value={checklistEditor.prefix==='a'?aCL:dCL} onChange={checklistEditor.prefix==='a'?setACL:setDCL} onClose={()=>setChecklistEditor(null)}/>}
+
+      {orderEditor && <OrderEditor key={orderEditor.order.id} patient={patients.find(p=>p.id===orderEditor.patient.id)||orderEditor.patient} order={orderEditor.order}
+        onClose={()=>setOrderEditor(null)} onDelete={orderEditor.isNew?null:()=>rmOrd(orderEditor.patient.id,orderEditor.order.id)}
+        onSave={(value,age)=>{setPatients(prev=>prev.map(p=>p.id===orderEditor.patient.id?{...p,age}:p));setOrders(prev=>({...prev,[orderEditor.patient.id]:orderEditor.isNew?[...(prev[orderEditor.patient.id]||[]),value]:(prev[orderEditor.patient.id]||[]).map(o=>o.id===value.id?value:o)}));}}/>}
+
+      {patModal !== null && <PatientModal wards={wardNames} edit={patModal.edit} onSave={addOrUpdatePat} onDelete={deletePat} onClose={() => setPatModal(null)} doctors={doctors} usedColors={patients.map(p=>p.color)}/>}
       {catModal && <AddCatModal onAdd={c => setPatCats(pr => ({...pr,[catModal]:[...(pr[catModal]||DEFAULT_CATS),c]}))} onClose={() => setCatModal(null)}/>}
       {dischargeModal && <DischargeModal patient={dischargeModal} onConfirm={confirmDischarge} onCancel={() => setDischargeModal(null)}/>}
-      {backupModal && <BackupModal onClose={() => setBackupModal(false)}/>}
+      {settingsModal && <WardSettingsModal wards={wardNames} settings={wardSettings} patients={patients} onSave={saveWardSettings} onClose={() => setSettingsModal(false)}/>}
+      {backupModal && <BackupModal liveData={{ward_patients_v2:patients,ward_discharged_v2:discharged,ward_orders_v2:orders,ward_patCats_v2:patCats,ward_rLabs_v2:rLabs,ward_taskDB:taskDB,ward_consults_v2:consults,ward_orderNoNeeded:orderNoNeeded,ward_dutyNotes:dutyNotes,ward_settings_v1:wardSettings,ward_names_v1:wardNames,ward_aCL:aCL,ward_dCL:dCL,ward_studyList:studyList}} onClose={() => setBackupModal(false)}/>}
       {handoffModal && <HandoffModal patients={filteredPats} orders={orders} selDateStr={selDateStr} onClose={() => setHandoffModal(false)}/>}
     </div>
   );
 }
 
-function BackupModal({onClose}) {
+function BackupModal({onClose,liveData}) {
   const [backups, setBackups] = useState(() => listBackups());
   const fileInputRef = useRef(null);
   const refresh = () => setBackups(listBackups());
   const exportJSON = () => {
-    const data = collectBackup();
+    const data = Object.fromEntries(Object.entries(liveData).map(([k,v])=>[k,JSON.stringify(v)]));
     // Decode JSON strings inside so the export file is human-readable
     const decoded = {};
     Object.keys(data).forEach(k => { try { decoded[k] = JSON.parse(data[k]); } catch { decoded[k] = data[k]; } });
@@ -2687,14 +2632,14 @@ function BackupModal({onClose}) {
 
         <div style={{marginBottom:8}}>
           <div style={{fontSize:13,fontWeight:700,color:"#475569",marginBottom:8}}>🕐 自動バックアップ</div>
-          <p style={{fontSize:11,color:"#94A3B8",margin:"0 0 8px 0",lineHeight:1.5}}>毎日自動で保存されます（最大7日分）。データが消えた時はここから戻せます。</p>
+          <p style={{fontSize:11,color:"#94A3B8",margin:"0 0 8px 0",lineHeight:1.5}}>同じブラウザ内に毎日保存します（最大7日分）。ブラウザのデータ削除では一緒に消えます。別端末への引き継ぎはファイル保存・復元を使ってください。</p>
           {backups.length === 0 ? (
             <div style={{padding:"12px",background:"#FBF8F0",borderRadius:8,fontSize:12,color:"#94A3B8",textAlign:"center"}}>バックアップなし</div>
           ) : (
             <div style={{display:"flex",flexDirection:"column",gap:4}}>
               {backups.map(key => {
                 const date = key.replace("ward_backup_","");
-                const today = new Date().toISOString().slice(0,10);
+                const today = dateKey(new Date());
                 const isToday = date === today;
                 return (
                   <div key={key} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:isToday?"#F0F4F9":"#FBF8F0",borderRadius:8,border:"1px solid "+(isToday?"#A8C5D8":"#E2E8F0")}}>
@@ -2717,23 +2662,23 @@ function HandoffModal({patients, orders, selDateStr, onClose}) {
     const po = orders[p.id] || [];
     const sd = pMD(selDateStr);
     const onToday = o => o.dates?.some(d => d === selDateStr);
-    const notExpAbx = o => { if (!o.endDate) return true; const ed = pMD(o.endDate); return ed && sd && ed >= sd; };
+    const notExpAbx = o => { if(o.startDate&&pMD(o.startDate)>sd)return false; if (!o.endDate) return true; const ed = pMD(o.endDate); return ed && sd && ed >= sd; };
     const meds = po.filter(o => o.type === "med" && o.name && onToday(o)).map(o => o.name);
     const drips = po.filter(o => o.type === "drip_main" && o.name && onToday(o)).map(o => o.name);
     const abxs = po.filter(o => o.type === "abx" && o.name && notExpAbx(o)).map(o => o.name + (o.endDate ? "(〜"+o.endDate+")" : ""));
-    const treatment = [...drips, ...meds, ...abxs].join("、") || "なし";
+    const treatment = [...drips, ...meds, ...abxs].join("、") || "未入力・要確認";
     // Upcoming labs (today or after)
     const labs = po.filter(o => o.type === "lab")
       .flatMap(o => (o.dates || []).map(d => ({d, name: o.name||"血液検査"})))
       .filter(x => { const dd = pMD(x.d); return dd && sd && dd >= sd; })
       .sort((a,b) => pMD(a.d) - pMD(b.d));
-    const exams = labs.length ? labs.slice(0,3).map(l => l.d + l.name).join("、") : "なし";
+    const exams = labs.length ? labs.slice(0,3).map(l => l.d + l.name).join("、") : "未入力・要確認";
     return {
       pid: p.id,
       enabled: true,
-      priority: "①",
+      priority: "未評価",
       name: p.name,
-      ageSex: (p.age || "") + (p.sex === "F" ? "F" : "M"),
+      ageSex: (p.age || "") + (p.sex === "F" ? "F" : p.sex === "M" ? "M" : "性別未入力"),
       room: p.room || "",
       diagnosis: p.diagnosis || "",
       treatment,
@@ -2764,6 +2709,7 @@ function HandoffModal({patients, orders, selDateStr, onClose}) {
     }
   };
   const PRIORITIES = [
+    {v:"未評価",l:"未評価",bg:"#F1F5F9",bd:"#CBD5E1",tx:"#475569"},
     {v:"①",l:"①安定/不要",bg:"#E5EFD9",bd:"#B8CDA0",tx:"#4A6336"},
     {v:"②",l:"②やや不安定",bg:"#F8EBC8",bd:"#E8C97A",tx:"#7D6432"},
     {v:"③",l:"③不安定/評価要",bg:"#F5DBCC",bd:"#D69072",tx:"#7D3823"}

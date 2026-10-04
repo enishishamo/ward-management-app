@@ -4,3 +4,6 @@ dist
 public/color-preview.html
 public/font-preview.html
 public/abc-preview.html
+
+# Local PDF extraction / rendering scratch files
+/tmp/

@@ -11,9 +11,9 @@ class ErrorBoundary extends Component {
         <div style={{padding:24,fontFamily:"sans-serif"}}>
           <h2 style={{color:"#DC2626"}}>エラーが発生しました</h2>
           <p style={{color:"#64748B",fontSize:13}}>{String(this.state.error)}</p>
-          <button onClick={() => { localStorage.clear(); location.reload(); }}
+          <button onClick={() => { const blob = new Blob([JSON.stringify({...localStorage},null,2)],{type:"application/json"}); const link=document.createElement("a"); link.href=URL.createObjectURL(blob); link.download="ward-recovery.json"; link.click(); URL.revokeObjectURL(link.href); }}
             style={{marginTop:12,padding:"8px 16px",background:"#3B82F6",color:"white",border:"none",borderRadius:8,cursor:"pointer",fontSize:14}}>
-            データをリセットして再起動
+            データを保全して書き出す
           </button>
           <button onClick={() => location.reload()}
             style={{marginTop:12,marginLeft:8,padding:"8px 16px",background:"white",color:"#334155",border:"1px solid #E2E8F0",borderRadius:8,cursor:"pointer",fontSize:14}}>
