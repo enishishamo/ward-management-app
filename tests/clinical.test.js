@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {tsatValue,rpiValue,patientCCr,number} from '../src/clinical.js';
+import {tsatValue,rpiValue,automaticRpi,patientCCr,number} from '../src/clinical.js';
 import {matchingDoses} from '../src/renalDosing.js';
 import {dateKey,parseDate,migrateDates,occurrenceDone} from '../src/dates.js';
 import {carryTasks,taskSlots} from '../src/taskCarry.js';
@@ -81,4 +81,15 @@ test('Do not substitute CCr for the eGFR-only drug table',()=>{
  assert.equal(matchingDoses('oral-ニルマトレルビル/リトナビル','egfr',60,'stable').length,0);
  assert.equal(matchingDoses('oral-STFX','standard',5,'stable').length,0);
  assert.equal(matchingDoses('oral-SBTPC','standard',30,'stable').length,1);
+});
+
+test('HOKUTO published RPI formula uses sex and continuous Hct correction',()=>{
+ assert.equal(automaticRpi(6,30,'%', 'M').value,16/7);
+ assert.equal(automaticRpi(6,30,'%', 'F').value,3);
+ assert.equal(automaticRpi(60,30,'‰','F').value,3);
+ assert.equal(automaticRpi(1,45,'%','M').value,1);
+ assert.equal(automaticRpi(1,40,'%','F').value,1);
+ assert.equal(automaticRpi(0,25,'%','F').value,0);
+ assert.equal(automaticRpi(6,35,'%','M').factor,1.5);
+ for(const args of [[6,30,'%',''],[6,'','%','M'],['',30,'%','F'],[-1,30,'%','M'],[6,0,'%','M'],[6,46,'%','M'],[6,41,'%','F'],[6,30,'unknown','M']])assert.equal(automaticRpi(...args).value,null);
 });

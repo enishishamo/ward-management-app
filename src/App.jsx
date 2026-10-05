@@ -1407,7 +1407,7 @@ export default function App() {
                     </div>
                   );
                 })}
-                <LabCalculator value={rl} onChange={value=>setRLabs(prev=>({...prev,[p.id]:value}))}/>
+                <LabCalculator sex={p.sex} value={rl} onChange={value=>setRLabs(prev=>({...prev,[p.id]:value}))}/>
 
               </div>
             )}

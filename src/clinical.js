@@ -10,6 +10,18 @@ export function rpiValue(retic,hct,unit='%',factor,normalHct=45) {
   const pct=unit==='‰'?r/10:r;
   return r!==null&&h!==null&&m!==null&&n!==null&&['%','‰'].includes(unit)&&pct>=0&&pct<=100&&h>0&&h<=100&&m>0&&m<=4&&n>0&&n<=100 ? pct*h/n/m : null;
 }
+// HOKUTO, 血液病レジデントマニュアル・ダイジェスト (accessed 2026-10-05).
+// https://hokuto.app/post/VF0FD8LmbSCV6HwHhQlb
+// Do not extrapolate the anemia correction beyond the sex-specific reference Hct.
+export function automaticRpi(retic,hct,unit,sex) {
+  const h=number(hct);
+  if(!['M','F'].includes(sex))return {value:null,reason:'患者情報の性別を設定してください。'};
+  const normalHct=sex==='M'?45:40;
+  if(h===null||h<=0||h>normalHct)return {value:null,normalHct,reason:`Hctは0より大きく${normalHct}%以下で入力してください。この基準Htを超える場合は自動計算の対象外です。`};
+  const factor=(sex==='M'?3.25:3)-0.05*h;
+  const value=rpiValue(retic,h,unit,factor,normalHct);
+  return {value,normalHct,factor,reason:value===null?'網赤血球の値と単位を確認してください。':''};
+}
 export function patientCCr(p) {
   const a=number(p.age),w=number(p.weight),c=number(p.cr);
   const missing=[];
